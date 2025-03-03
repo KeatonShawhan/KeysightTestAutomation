@@ -1,24 +1,29 @@
 #!/usr/bin/env bash
 #
 # multi_runner.sh
-# A script to spin up multiple OpenTAP runners on a Raspberry Pi, each bound to a unique port.
-# It also supports a graceful teardown, unregistering and removing all runner folders.
+#
+# A script to spin up multiple OpenTAP runners on a Raspberry Pi, each bound
+# to a unique port. It supports a graceful teardown, unregistering and removing
+# all runner folders. If a port is already in use, it automatically retries
+# with the next port, unregistering and deleting the failed runner attempt.
 #
 # Usage:
-#   ./multi_runner.sh start N <registrationToken>
+#   ./multi_runner.sh start <number_of_runners> <registration_token>
 #   ./multi_runner.sh stop
 #
-# Disclaimer: This requires a working .NET installation on the Raspberry Pi.
-#
+# Disclaimer: This requires .NET and 'expect' installed on the Pi.
 
 set -e
 
 # --- CONFIGURATION ---
 STARTING_PORT=20112
 MAX_PORT=20120
-TAP_URL="https://test-automation.pw.keysight.com"  # URL used in the 'tap runner register' command
+TAP_URL="https://test-automation.pw.keysight.com"  # URL for 'tap runner register'
 OPENTAP_BASE_DOWNLOAD="https://packages.opentap.io/4.0/Objects/Packages/OpenTAP?os=Linux&architecture=arm64"
 OPENTAP_RUNNER_VERSION="Runner:1.12.2"
+
+# Time to wait (in seconds) after starting a runner to see if it fails with a "port in use" error.
+WAIT_FOR_ERROR=5
 
 # --- HELPER FUNCTIONS ---
 
@@ -30,67 +35,163 @@ function usage() {
 }
 
 function check_dotnet() {
-  if ! command -v dotnet &> /dev/null; then
+  if ! command -v dotnet &>/dev/null; then
     echo "[ERROR] .NET runtime not found. Please install .NET before running this script."
     exit 1
   fi
+}
+
+function check_expect() {
+  if ! command -v expect &>/dev/null; then
+    echo "[ERROR] 'expect' utility is not installed. Please install it (e.g., sudo apt-get install expect)."
+    exit 1
+  fi
+}
+
+##
+# Use expect to send "0" to the interactive prompt from 'tap runner unregister'.
+# We also add a small delay after sending the input.
+##
+function auto_unregister() {
+  local port="$1"
+  /usr/bin/expect <<EOF
+    set timeout 30
+    spawn env OPENTAP_RUNNER_SERVER_PORT="${port}" ./tap runner unregister
+    expect {
+      -re "Selection.*" {
+        send "0\r"
+        exp_continue
+      }
+      eof
+    }
+EOF
+  # Brief delay to let unregistration finish
+  sleep 5
+}
+
+##
+# Try to start a single runner on a specific port, returning:
+#  0 on success,
+#  1 if "address already in use" is detected in the log,
+#  2 if some other fatal error is encountered.
+##
+function attempt_start_runner() {
+  local port="$1"
+
+  # Start the runner in background
+  nohup env OPENTAP_RUNNER_SERVER_PORT="$port" ./tap runner start > runner.log 2>&1 &
+
+  # Wait a few seconds to see if an error surfaces quickly in runner.log
+  sleep "$WAIT_FOR_ERROR"
+
+  if grep -q "bind: address already in use" runner.log; then
+    echo "[ERROR] Port $port is already in use. Will attempt to unregister and retry with another port."
+    return 1
+  fi
+
+  # We might also check for some other known fatal errors if you want:
+  # if grep -q "Fatal error" runner.log; then
+  #   echo "[ERROR] A fatal error occurred (unrelated to port)."
+  #   return 2
+  # fi
+
+  # If we didn't detect the specific port error, assume success
+  return 0
 }
 
 function start_runners() {
   local num_runners="$1"
   local registration_token="$2"
 
-  # Validate runner count based on available port range
-  local max_runners=$((MAX_PORT - STARTING_PORT + 1))
-  if (( num_runners > max_runners )); then
-    echo "[ERROR] You requested $num_runners runners, but only $max_runners ports are available ($STARTING_PORT to $MAX_PORT)."
+  # Max number of runners we can handle is (MAX_PORT - STARTING_PORT + 1)
+  local available_runners=$(( MAX_PORT - STARTING_PORT + 1 ))
+  if (( num_runners > available_runners )); then
+    echo "[ERROR] Requested $num_runners runners, but only $available_runners distinct ports available ($STARTING_PORT..$MAX_PORT)."
     exit 1
   fi
 
-  echo "[INFO] Starting $num_runners runner(s). Registration Token: $registration_token"
+  echo "[INFO] Attempting to start $num_runners runner(s). Registration Token: $registration_token"
+
+  local current_port="$STARTING_PORT"
 
   for (( i=1; i<=num_runners; i++ )); do
     local runner_folder="$HOME/runner_$i"
-    local runner_port=$((STARTING_PORT + i - 1))
 
-    echo "----------------------------------------------------"
-    echo "[INFO] Setting up Runner #$i in folder: $runner_folder on port: $runner_port"
+    # We may need to loop if the port is in use
+    local started=0
+    while [[ $started -eq 0 ]]; do
+      if (( current_port > MAX_PORT )); then
+        echo "[ERROR] No more ports available. Could only start $((i-1)) runners."
+        exit 1
+      fi
 
-    # 1. Create a new folder for the runner
-    rm -rf "$runner_folder" 2>/dev/null || true
-    mkdir -p "$runner_folder"
-    cd "$runner_folder"
+      echo "----------------------------------------------------"
+      echo "[INFO] Setting up Runner #$i in folder: $runner_folder on port: $current_port"
 
-    # 2. Download & install OpenTAP
-    echo "[INFO] Downloading OpenTAP..."
-    curl -sSL -o opentap.zip "$OPENTAP_BASE_DOWNLOAD"
-    unzip -q ./opentap.zip -d ./
-    rm ./opentap.zip
-    chmod +x ./tap  # Make tap executable
+      # 1. Create fresh folder
+      rm -rf "$runner_folder" 2>/dev/null || true
+      mkdir -p "$runner_folder"
+      cd "$runner_folder"
 
-    # 3. Install the Runner plugin
-    echo "[INFO] Installing the Runner plugin: $OPENTAP_RUNNER_VERSION"
-    ./tap image install "$OPENTAP_RUNNER_VERSION" >/dev/null 2>&1
+      # 2. Download & install OpenTAP
+      echo "[INFO] Downloading OpenTAP..."
+      curl -sSL -o opentap.zip "$OPENTAP_BASE_DOWNLOAD"
+      unzip -q opentap.zip -d ./
+      rm opentap.zip
+      chmod +x ./tap
 
-    # 4. Register the Runner
-    echo "[INFO] Registering the Runner with token..."
-    ./tap runner register --url "$TAP_URL" --registrationToken "$registration_token" >/dev/null 2>&1
+      # 3. Install the Runner plugin
+      echo "[INFO] Installing the Runner plugin: $OPENTAP_RUNNER_VERSION"
+      ./tap image install "$OPENTAP_RUNNER_VERSION" >/dev/null 2>&1
 
-    # 5. Start the Runner in the background on the specified port
-    echo "[INFO] Starting the Runner in the background..."
-    nohup env OPENTAP_RUNNER_SERVER_PORT="$runner_port" ./tap runner start > runner.log 2>&1 &
+      # 4. Register the Runner
+      echo "[INFO] Registering the Runner..."
+      ./tap runner register --url "$TAP_URL" --registrationToken "$registration_token" >/dev/null 2>&1
 
-    echo "[INFO] Runner #$i setup complete."
+      # 5. Attempt to start the Runner on current_port
+      echo "[INFO] Trying port $current_port..."
+      if attempt_start_runner "$current_port"; then
+        # success
+        echo "[INFO] Runner #$i started successfully on port $current_port."
+        started=1
+      else
+        # attempt_start_runner returned non-zero
+        local ret=$?
+        if [[ $ret -eq 1 ]]; then
+          # Port already in use. Unregister & remove
+          echo "[INFO] Unregistering the runner attempt on port $current_port..."
+          auto_unregister "$current_port" || true
+          cd ..
+          rm -rf "$runner_folder"
+          echo "[INFO] Freed up runner folder; will try the next port."
+          # Increment port and retry
+          ((current_port++))
+          continue
+        else
+          # For other fatal errors, fail hard (or handle differently if you prefer)
+          echo "[ERROR] Encountered a fatal error when starting runner #$i. Aborting."
+          cd ..
+          rm -rf "$runner_folder"
+          exit 1
+        fi
+      fi
+
+      # End of while loop
+      cd ~
+    done
+
+    # If we reached here, runner #i is successfully started
+    # Move on to next runner
+    ((current_port++))
   done
 
   echo "----------------------------------------------------"
-  echo "[INFO] All $num_runners runner(s) are started. Logs are in each runner folder's runner.log."
+  echo "[INFO] Successfully started $num_runners runner(s). Logs can be found in each runner folder's runner.log."
 }
 
 function stop_runners() {
-  echo "[INFO] Stopping and unregistering all runners."
+  echo "[INFO] Stopping and unregistering all runners (non-interactive)."
 
-  # Loop over all possible runners from 1 to 9 (given our max is 9)
   for i in $(seq 1 9); do
     local runner_folder="$HOME/runner_$i"
     local runner_port=$((STARTING_PORT + i - 1))
@@ -98,18 +199,16 @@ function stop_runners() {
     if [[ -d "$runner_folder" ]]; then
       echo "----------------------------------------------------"
       echo "[INFO] Stopping runner in folder: $runner_folder"
-
       cd "$runner_folder"
 
-      # 1. Gracefully unregister the runner
+      # Gracefully unregister the runner
       if [[ -x "./tap" ]]; then
-        echo "[INFO] Unregistering Runner #$i..."
-        # We set the port environment in case it needs it to find the correct runner instance
-        env OPENTAP_RUNNER_SERVER_PORT="$runner_port" ./tap runner unregister || true
+        echo "[INFO] Unregistering Runner #$i on port $runner_port..."
+        auto_unregister "$runner_port" || true
       fi
 
-      cd ..
-      rm -rf "$runner_folder"  # Remove the folder and all logs/files
+      cd ~
+      rm -rf "$runner_folder"
       echo "[INFO] Runner #$i unregistered and folder removed."
     fi
   done
@@ -120,10 +219,10 @@ function stop_runners() {
 
 # --- MAIN LOGIC ---
 
-# Check for .NET first
+# Check for .NET and 'expect'
 check_dotnet
+check_expect
 
-# Parse command
 if [[ $# -lt 1 ]]; then
   usage
 fi
@@ -139,11 +238,9 @@ case "$COMMAND" in
     REG_TOKEN="$3"
     start_runners "$START_NUM" "$REG_TOKEN"
     ;;
-
   stop)
     stop_runners
     ;;
-
   *)
     usage
     ;;
