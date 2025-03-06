@@ -3,33 +3,85 @@
 # multi_runner.sh
 #
 # A script to spin up multiple OpenTAP runners on a Raspberry Pi, each bound
-# to a unique port. It supports a graceful teardown, automatically unregistering
-# and removing all runner folders. If a port is already in use, it automatically
-# retries with the next port, unregistering and deleting the failed runner attempt.
+# to a unique port. Key features:
+#   - Can be called multiple times in a row; it detects existing runner_*
+#     folders and continues numbering from the highest index found.
+#   - Creates all N requested runners (no more stopping after just one).
+#   - Checks each port beforehand to avoid partial installs when a port is busy.
+#   - Uses an 'expect' script to gracefully unregister (tap runner unregister)
+#     when you do `./multi_runner.sh stop`.
 #
 # Usage:
 #   ./multi_runner.sh start <number_of_runners> <registration_token>
 #   ./multi_runner.sh stop
 #
-# Disclaimer: This requires .NET and 'expect' installed on the Pi.
+# Requirements:
+#   1) .NET runtime
+#   2) 'expect'
+#   3) 'ss' (usually in 'iproute2' package) and 'unzip' installed
+#
+# If a step fails, the script will log an error and exit.
+#
+# Example:
+#   ./multi_runner.sh start 3 <token>  # Creates 3 new runners
+#   ./multi_runner.sh start 2 <token>  # Creates 2 more, now 5 total
 
-set -e
+#############################################
+#               CONFIGURATION               #
+#############################################
 
-# --- CONFIGURATION ---
-STARTING_PORT=20113
+# The valid port range:
+STARTING_PORT=20110
 MAX_PORT=20220
-MAX_RUNNERS=97
-TAP_URL="https://test-automation.pw.keysight.com"  # URL for 'tap runner register'
+
+# Maximum runner folders we will create, total:
+MAX_RUNNERS=100
+
+# Where to register the runner:
+TAP_URL="https://test-automation.pw.keysight.com"
+
+# Base OpenTAP package (for the 'tap' command):
 OPENTAP_BASE_DOWNLOAD="https://packages.opentap.io/4.0/Objects/Packages/OpenTAP?os=Linux&architecture=arm64"
 
-# The custom runner TapPackage you provided:
+# Custom runner TapPackage URL:
 RUNNER_PACKAGE_URL="https://github.com/KeatonShawhan/KeysightTestAutomation/raw/refs/heads/main/Runner.1.13.0-alpha.84.1+b4b4b421.1203-enable-more-runners-on-a-.Linux.arm64.TapPackage"
 
-# Time to wait (in seconds) after starting a runner to see if it fails with a "port in use" error.
-WAIT_FOR_ERROR=5
 
-# --- HELPER FUNCTIONS ---
+#############################################
+#            DEPENDENCY CHECKS              #
+#############################################
 
+# We intentionally do NOT use 'set -e' so we can log errors properly if something fails.
+# We'll do explicit error checks instead.
+
+function check_command_exists() {
+  local cmd="$1"
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "[ERROR] '$cmd' is not installed or not in PATH. Please install it and retry."
+    return 1
+  fi
+  return 0
+}
+
+function check_dependencies() {
+  local missing=0
+  for cmd in dotnet expect ss unzip curl; do
+    check_command_exists "$cmd" || missing=1
+  done
+  if (( missing )); then
+    echo "[ERROR] Missing one or more required commands. Exiting."
+    exit 1
+  fi
+}
+
+#############################################
+#         UTILITY & HELPER FUNCTIONS        #
+#############################################
+
+##
+# usage()
+# Prints usage info and exits.
+##
 function usage() {
   echo "Usage:"
   echo "  $0 start <number_of_runners> <registration_token>"
@@ -37,188 +89,239 @@ function usage() {
   exit 1
 }
 
-function check_dotnet() {
-  if ! command -v dotnet &>/dev/null; then
-    echo "[ERROR] .NET runtime not found. Please install .NET before running this script."
-    exit 1
-  fi
+##
+# find_existing_max()
+#   Scans runner_1..runner_MAX_RUNNERS, returns the highest index that exists.
+#   If none exist, returns 0.
+##
+function find_existing_max() {
+  local max_found=0
+  for i in $(seq 1 "$MAX_RUNNERS"); do
+    local folder="$HOME/runner_$i"
+    if [[ -d "$folder" ]]; then
+      max_found="$i"
+    fi
+  done
+  echo "$max_found"
 }
 
-function check_expect() {
-  if ! command -v expect &>/dev/null; then
-    echo "[ERROR] 'expect' utility is not installed. Please install it (e.g., sudo apt-get install expect)."
-    exit 1
+##
+# is_port_free(port)
+#   Returns 0 if free, 1 if busy.
+#   Uses 'ss' to check for an active listener on that port.
+##
+function is_port_free() {
+  local port="$1"
+  if ss -tulpn 2>/dev/null | grep -q ":$port "; then
+    return 1  # busy
+  else
+    return 0  # free
   fi
 }
 
 ##
-# Use expect to send "0" to the interactive prompt from 'tap runner unregister'.
-# We also add a small delay after sending the input.
+# auto_unregister(port)
+#   Uses 'expect' to pipe "0" to `tap runner unregister`.
+#   We do a short sleep so the server can finalize removal.
 ##
 function auto_unregister() {
   local port="$1"
   /usr/bin/expect <<EOF
-    set timeout 30
-    spawn env OPENTAP_RUNNER_SERVER_PORT="${port}" ./tap runner unregister
-    expect {
-      -re "Selection.*" {
-        send "0\r"
-        exp_continue
-      }
-      eof
+  set timeout 30
+  spawn env OPENTAP_RUNNER_SERVER_PORT="${port}" ./tap runner unregister
+  expect {
+    -re "Selection.*" {
+      send "0\r"
+      exp_continue
     }
+    eof
+  }
 EOF
-  # Brief delay to let unregistration finish
+
+  # Let it settle
   sleep 5
 }
 
-##
-# Launch a runner in the background and check its log for "address already in use."
-# Return codes:
-#   0 = success
-#   1 = "address already in use"
-#   2 = some other fatal error (not currently implemented, but you can add checks if needed)
-##
-function attempt_start_runner() {
-  local port="$1"
 
-  # Start the runner in background
-  nohup env OPENTAP_RUNNER_SERVER_PORT="$port" ./tap runner start > runner.log 2>&1 &
-
-  # Wait a few seconds to see if an error surfaces in runner.log
-  sleep "$WAIT_FOR_ERROR"
-
-  if grep -q "bind: address already in use" runner.log; then
-    echo "[ERROR] Port $port is already in use. Will attempt to unregister and retry with another port."
-    return 1
-  fi
-
-  # If we didn't detect the specific port error, assume success
-  return 0
-}
+#############################################
+#           START RUNNERS FUNCTION          #
+#############################################
 
 function start_runners() {
   local num_runners="$1"
   local registration_token="$2"
 
-  # Ensure the user hasn't requested more runners than allowed
+  # Basic checks
+  if (( num_runners < 1 )); then
+    echo "[ERROR] Number of runners must be >= 1."
+    exit 1
+  fi
   if (( num_runners > MAX_RUNNERS )); then
     echo "[ERROR] Requested $num_runners runners, but the script caps at $MAX_RUNNERS."
     exit 1
   fi
 
-  # Also ensure we have enough ports in the range
-  local available_ports=$(( MAX_PORT - STARTING_PORT + 1 ))
+  # Check that we have enough available ports
+  local available_ports=$((MAX_PORT - STARTING_PORT + 1))
   if (( num_runners > available_ports )); then
-    echo "[ERROR] Requested $num_runners runners, but only $available_ports ports are available ($STARTING_PORT..$MAX_PORT)."
+    echo "[ERROR] Requested $num_runners runners, but only $available_ports ports are in [$STARTING_PORT..$MAX_PORT]."
     exit 1
   fi
 
-  echo "[INFO] Attempting to start $num_runners runner(s). Registration Token: $registration_token"
+  # Determine how many runners already exist
+  local existing_max
+  existing_max="$(find_existing_max)"
+  echo "[INFO] Highest existing runner index so far: $existing_max"
 
-  local current_port="$STARTING_PORT"
+  # The next new runner index to create
+  local start_index=$(( existing_max + 1 ))
 
-  for (( i=1; i<=num_runners; i++ )); do
-    local runner_folder="$HOME/runner_$i"
+  # We'll define offset = existing_max, so the next runner tries port = STARTING_PORT + offset
+  local offset="$existing_max"
 
-    # We may need to keep retrying on new ports if the current one is in use
-    local started=0
-    while [[ $started -eq 0 ]]; do
+  echo "[INFO] Attempting to create $num_runners new runner(s), starting at runner_$start_index."
+
+  local runners_started=0
+
+  # Main loop to create N new runners
+  for (( count = 1; count <= num_runners; count++ )); do
+    local runner_index=$(( start_index + count - 1 ))
+    local runner_folder="$HOME/runner_${runner_index}"
+    local current_port=0
+
+    # Find the next free port
+    while true; do
+      current_port=$(( STARTING_PORT + offset ))
       if (( current_port > MAX_PORT )); then
-        echo "[ERROR] No more ports available. Could only start $((i-1)) runners."
+        echo "[ERROR] Ran out of ports before starting all $num_runners runners. Created $runners_started so far."
         exit 1
       fi
-
-      echo "----------------------------------------------------"
-      echo "[INFO] Setting up Runner #$i in folder: $runner_folder on port: $current_port"
-
-      # 1. Create fresh folder
-      rm -rf "$runner_folder" 2>/dev/null || true
-      mkdir -p "$runner_folder"
-      cd "$runner_folder"
-
-      # 2. Download & install base OpenTAP
-      echo "[INFO] Downloading base OpenTAP from $OPENTAP_BASE_DOWNLOAD ..."
-      curl -sSL -o opentap.zip "$OPENTAP_BASE_DOWNLOAD"
-      unzip -q opentap.zip -d ./
-      rm opentap.zip
-      chmod +x ./tap
-
-      # 3. Install the custom Runner package
-      echo "[INFO] Downloading custom Runner from $RUNNER_PACKAGE_URL ..."
-      curl -sSL -o custom_runner.tap_package "$RUNNER_PACKAGE_URL"
-      echo "[INFO] Installing the custom Runner TapPackage..."
-      ./tap package install custom_runner.tap_package >/dev/null 2>&1
-      rm custom_runner.tap_package
-
-      # 4. Register the Runner
-      echo "[INFO] Registering the Runner with token..."
-      ./tap runner register --url "$TAP_URL" --registrationToken "$registration_token" >/dev/null 2>&1
-
-      # 5. Attempt to start the Runner on current_port
-      echo "[INFO] Trying port $current_port..."
-      if attempt_start_runner "$current_port"; then
-        # success
-        echo "[INFO] Runner #$i started successfully on port $current_port."
-        started=1
+      if is_port_free "$current_port"; then
+        # We found a free port
+        break
       else
-        # attempt_start_runner returned non-zero => port in use
-        echo "[INFO] Unregistering the runner attempt on port $current_port..."
-        auto_unregister "$current_port" || true
-        cd ..
-        rm -rf "$runner_folder"
-        echo "[INFO] Freed up runner folder; will try the next port."
-        ((current_port++))
-        continue
+        echo "[WARNING] Port $current_port is busy. Checking the next one..."
+        (( offset++ ))
       fi
-
-      # If we get here, the runner started successfully, move on
-      cd ~
     done
 
-    # Move to next port for the next runner
-    ((current_port++))
+    # Now current_port is free; let's create the runner
+    echo "----------------------------------------------------"
+    echo "[INFO] Creating runner #$runner_index in $runner_folder on port $current_port"
+    echo "[INFO] (This is runner $count of $num_runners requested this run)"
+
+    # 1) Create fresh folder
+    rm -rf "$runner_folder" || true
+    mkdir -p "$runner_folder"
+    cd "$runner_folder" || {
+      echo "[ERROR] Failed to cd into $runner_folder"
+      exit 1
+    }
+
+    # 2) Download & install base OpenTAP
+    echo "[INFO] Downloading base OpenTAP..."
+    curl -sSL -o opentap.zip "$OPENTAP_BASE_DOWNLOAD" || {
+      echo "[ERROR] Failed to download OpenTAP from '$OPENTAP_BASE_DOWNLOAD'."
+      exit 1
+    }
+    unzip -q opentap.zip -d ./ || {
+      echo "[ERROR] Failed to unzip 'opentap.zip' into $runner_folder."
+      exit 1
+    }
+    rm opentap.zip
+    chmod +x ./tap || {
+      echo "[ERROR] Unable to chmod +x ./tap"
+      exit 1
+    }
+
+    # 3) Download & install the custom Runner package
+    echo "[INFO] Downloading custom Runner tap package..."
+    curl -sSL -o custom_runner.tap_package "$RUNNER_PACKAGE_URL" || {
+      echo "[ERROR] Failed to download custom Runner from '$RUNNER_PACKAGE_URL'."
+      exit 1
+    }
+    echo "[INFO] Installing custom Runner TapPackage..."
+    ./tap package install custom_runner.tap_package >/dev/null 2>&1 || {
+      echo "[ERROR] Failed to install custom_runner.tap_package."
+      exit 1
+    }
+    rm custom_runner.tap_package
+
+    # 4) Register the Runner
+    echo "[INFO] Registering the Runner..."
+    ./tap runner register --url "$TAP_URL" --registrationToken "$registration_token" >/dev/null 2>&1 || {
+      echo "[ERROR] tap runner register failed."
+      exit 1
+    }
+
+    # 5) Start the Runner in the background
+    echo "[INFO] Starting the Runner on port $current_port..."
+    nohup env OPENTAP_RUNNER_SERVER_PORT="$current_port" ./tap runner start > runner.log 2>&1 &
+
+    # Optional short pause so the runner can bind the port
+    sleep 1
+
+    echo "[INFO] Runner #$runner_index is started. Logs in $runner_folder/runner.log."
+    (( runners_started++ ))
+    (( offset++ ))
+
+    # Return to home directory
+    cd ~ || true
   done
 
   echo "----------------------------------------------------"
-  echo "[INFO] Successfully started $num_runners runner(s). Logs are in each runner folder's runner.log."
+  echo "[INFO] Created $runners_started new runner(s) in this session."
 }
 
-function stop_runners() {
-  echo "[INFO] Stopping and unregistering all runners (non-interactive)."
+#############################################
+#             STOP RUNNERS FUNCTION         #
+#############################################
 
+function stop_runners() {
+  echo "[INFO] Stopping and unregistering all runners (1..$MAX_RUNNERS)."
+
+  # We attempt up to MAX_RUNNERS possible indexes
   for i in $(seq 1 "$MAX_RUNNERS"); do
     local runner_folder="$HOME/runner_$i"
-    local runner_port=$((STARTING_PORT + i - 1))
+    local runner_port=$(( STARTING_PORT + i - 1 ))
 
     if [[ -d "$runner_folder" ]]; then
       echo "----------------------------------------------------"
-      echo "[INFO] Stopping runner in folder: $runner_folder"
-      cd "$runner_folder"
+      echo "[INFO] Found runner folder: $runner_folder; stopping it..."
+      cd "$runner_folder" || {
+        echo "[ERROR] Could not cd to $runner_folder"
+        continue
+      }
 
-      # Gracefully unregister the runner
-      if [[ -x "./tap" ]]; then
-        echo "[INFO] Unregistering Runner #$i on port $runner_port..."
-        auto_unregister "$runner_port" || true
+      # Attempt graceful unregistration
+      if [[ -x ./tap ]]; then
+        echo "[INFO] Unregistering runner #$i on port $runner_port..."
+        auto_unregister "$runner_port" || {
+          echo "[WARN] auto_unregister failed or was incomplete."
+        }
+      else
+        echo "[WARN] ./tap not found or not executable in $runner_folder."
       fi
 
       cd ~
       rm -rf "$runner_folder"
-      echo "[INFO] Runner #$i unregistered and folder removed."
+      echo "[INFO] Removed $runner_folder."
     fi
   done
 
   echo "----------------------------------------------------"
-  echo "[INFO] All runners have been unregistered and removed."
+  echo "[INFO] All possible runners have been unregistered and removed."
 }
 
-# --- MAIN LOGIC ---
 
-# Check dependencies
-check_dotnet
-check_expect
+#############################################
+#                 MAIN LOGIC                #
+#############################################
 
-# Parse arguments
+# 1) Check required commands
+check_dependencies
+
+# 2) Parse arguments
 if [[ $# -lt 1 ]]; then
   usage
 fi
@@ -230,9 +333,9 @@ case "$COMMAND" in
     if [[ $# -ne 3 ]]; then
       usage
     fi
-    START_NUM="$2"
-    REG_TOKEN="$3"
-    start_runners "$START_NUM" "$REG_TOKEN"
+    num="$2"
+    reg_token="$3"
+    start_runners "$num" "$reg_token"
     ;;
   stop)
     stop_runners
