@@ -262,9 +262,32 @@ for (( i=1; i<=N; i++ )); do
 done
 
 jobs -l  # Lists all active background jobs
+echo "[DEBUG] Waiting..."
+
+MAX_WAIT_TIME=60  # 1 minute
+START_TIME=$(date +%s)
+
+while true; do
+  RUNNING_JOBS=$(jobs -p)
+  if [[ -z "$RUNNING_JOBS" ]]; then
+    break  # No more jobs running
+  fi
+  
+  CURRENT_TIME=$(date +%s)
+  ELAPSED_TIME=$((CURRENT_TIME - START_TIME))
+
+  if (( ELAPSED_TIME > MAX_WAIT_TIME )); then
+    echo "[ERROR] Some test runners are taking too long. Killing them..."
+    kill $RUNNING_JOBS 2>/dev/null
+    break
+  fi
+
+  sleep 3  # Check every 5 seconds
+done
+
 
 # Wait for all background runners to finish
-wait
+# wait
 
 echo "[DEBUG] About to delete monitor..."
 # Stop resource monitoring by removing the flag file
