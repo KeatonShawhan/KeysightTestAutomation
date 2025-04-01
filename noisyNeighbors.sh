@@ -115,31 +115,40 @@ function analyze_metrics() {
   local baseline_file="${METRICS_DIR}/runner_1_metrics.log"
   local total_runtime=0
   local max_runtime=0
-  local max_runner=0
-  local min_runtime=9999
-  local min_runner=0
+  local max_runner=1
+  local min_runtime=9999999  # High enough to ensure proper min selection
+  local min_runner=1
   
   echo "----------------------------------------------------"
   echo "[INFO] Performance Analysis:"
   
   # Extract baseline metrics
   if [[ -f "$baseline_file" ]]; then
-    local baseline_data=$(cat "$baseline_file")
-    local baseline_runtime=$(echo "$baseline_data" | grep -oP 'runtime=\K[0-9.]+')
+    local baseline_data=$(grep -oP 'runtime=\K[0-9.]+' "$baseline_file")
+    if [[ -z "$baseline_data" ]]; then
+      echo "[ERROR] Baseline runner log exists, but no runtime data found."
+      return 1
+    fi
+    local baseline_runtime=$baseline_data
     echo "Baseline Runner (Runner #1): $baseline_runtime seconds"
   else
     echo "[ERROR] Could not find baseline metrics file."
     return 1
   fi
-  
+
   # Analyze metrics for all runners
   echo "----------------------------------------------------"
   echo "Individual Runner Performance:"
   for i in $(seq 2 "$N"); do
     local metrics_file="${METRICS_DIR}/runner_${i}_metrics.log"
     if [[ -f "$metrics_file" ]]; then
-      local data=$(cat "$metrics_file")
-      local runtime=$(echo "$data" | grep -oP 'runtime=\K[0-9.]+')
+      local runtime=$(grep -oP 'runtime=\K[0-9.]+' "$metrics_file")
+
+      # Validate runtime extraction
+      if [[ -z "$runtime" ]]; then
+        echo "[WARNING] Could not extract runtime for Runner #$i. Skipping..."
+        continue
+      fi
       
       # Track min/max
       if (( $(echo "$runtime > $max_runtime" | bc -l) )); then
@@ -155,11 +164,15 @@ function analyze_metrics() {
       total_runtime=$(echo "$total_runtime + $runtime" | bc)
       
       # Calculate slowdown compared to baseline
-      local slowdown=$(echo "scale=2; ($runtime / $baseline_runtime - 1) * 100" | bc)
-      echo "Runner #$i: $runtime seconds (${slowdown}% slower than baseline)"
+      local slowdown=$(echo "scale=2; (($runtime / $baseline_runtime) - 1) * 100" | bc)
+      slowdown=$(printf "%.2f" "$slowdown")  # Format slowdown output properly
+
+      echo "Runner #$i: ${runtime} seconds (${slowdown}% slower than baseline)"
+    else
+      echo "[WARNING] Missing metrics file for Runner #$i. Skipping..."
     fi
   done
-  
+
   # Calculate average (excluding baseline)
   if (( N > 1 )); then
     local avg_runtime=$(echo "scale=2; $total_runtime / (${N} - 1)" | bc)
@@ -187,10 +200,11 @@ function analyze_metrics() {
     
     echo "A summary report has been saved to: ${METRICS_DIR}/summary_report.txt"
   fi
-  
+
   echo "----------------------------------------------------"
   echo "Performance impact analysis complete. Detailed logs available in the $METRICS_DIR directory."
 }
+
 
 # Main script logic
 clear
@@ -264,26 +278,16 @@ done
 jobs -l  # Lists all active background jobs
 echo "[DEBUG] Waiting..."
 
-MAX_WAIT_TIME=60  # 1 minute
-START_TIME=$(date +%s)
-
 while true; do
   RUNNING_JOBS=$(jobs -p)
   if [[ -z "$RUNNING_JOBS" ]]; then
-    break  # No more jobs running
-  fi
-  
-  CURRENT_TIME=$(date +%s)
-  ELAPSED_TIME=$((CURRENT_TIME - START_TIME))
-
-  if (( ELAPSED_TIME > MAX_WAIT_TIME )); then
-    echo "[ERROR] Some test runners are taking too long. Killing them..."
-    kill $RUNNING_JOBS 2>/dev/null
-    break
+    echo "[INFO] All test runners have completed."
+    break  # No more jobs running, exit loop safely
   fi
 
-  sleep 3  # Check every 5 seconds
+  sleep 1  # Check every second
 done
+
 
 
 # Wait for all background runners to finish
