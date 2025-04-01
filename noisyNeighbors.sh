@@ -30,6 +30,20 @@ function check_runners_exist() {
   echo "[INFO] Found $count runners, which is sufficient for testing."
 }
 
+# Function to verify the test plan exists in the script directory
+function verify_test_plan() {
+  local test_plan="$1"
+  local test_plan_path="${SCRIPT_DIR}/${test_plan}"
+  
+  if [[ ! -f "$test_plan_path" ]]; then
+    echo "[ERROR] Test plan not found: $test_plan_path"
+    echo "[INFO] Please place the test plan in the same directory as this script."
+    exit 1
+  fi
+  
+  echo "[INFO] Found test plan: $test_plan_path"
+}
+
 # Function to run a test plan on a specific runner
 function run_test_plan() {
   local runner_id=$1
@@ -38,6 +52,7 @@ function run_test_plan() {
   local output_file="${METRICS_DIR}/runner_${runner_id}_metrics.log"
   local runner_dir="$HOME/runner_$runner_id"
   local runner_port=$((STARTING_PORT + runner_id - 1))
+  local test_plan_path="${SCRIPT_DIR}/${test_plan}"
   
   echo "[INFO] Runner #$runner_id executing test plan: $test_plan (Port: $runner_port)"
   
@@ -49,19 +64,19 @@ function run_test_plan() {
   # Capture start timestamp with millisecond precision
   local start_time=$(date +%s.%N)
   
-  # Actually run the test plan on the runner
+  # Move to runner directory but use the test plan from the script directory
   cd "$runner_dir" || return 1
   
   # Execute the test plan and capture output
   if [[ "$is_baseline" == "true" ]]; then
     # For baseline, capture detailed output
-    ./tap run "$test_plan" 2>&1 | tee "${METRICS_DIR}/runner_${runner_id}_output.log" || {
+    ./tap run "$test_plan_path" 2>&1 | tee "${METRICS_DIR}/runner_${runner_id}_output.log" || {
       echo "[ERROR] Failed to run test plan on runner #$runner_id."
       return 1
     }
   else
     # For concurrent runners, just capture basic output
-    ./tap run "$test_plan" > "${METRICS_DIR}/runner_${runner_id}_output.log" 2>&1 || {
+    ./tap run "$test_plan_path" > "${METRICS_DIR}/runner_${runner_id}_output.log" 2>&1 || {
       echo "[ERROR] Failed to run test plan on runner #$runner_id."
       return 1
     }
@@ -193,7 +208,10 @@ check_runners_exist "$N"
 rm -rf "${METRICS_DIR}"/*.log
 
 # Get test plan name from user
-read -p "Enter the test plan name to execute: " TEST_PLAN
+read -p "Enter the test plan name to execute (must be in this directory): " TEST_PLAN
+
+# Verify the test plan exists in the script directory
+verify_test_plan "$TEST_PLAN"
 
 echo "[INFO] Starting performance test with $N runners"
 echo "[INFO] Baseline: Runner #1 running solo"
@@ -220,6 +238,8 @@ run_test_plan 1 "$TEST_PLAN" true &
 # Start all other runners concurrently
 for (( i=2; i<=N; i++ )); do
   run_test_plan "$i" "$TEST_PLAN" false &
+  # Small delay to stagger starts slightly
+  sleep 0.5
 done
 
 # Wait for all background runners to finish
