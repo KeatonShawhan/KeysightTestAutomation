@@ -261,9 +261,12 @@ for (( i=1; i<=N; i++ )); do
   sleep 0.5
 done
 
+jobs -l  # Lists all active background jobs
+
 # Wait for all background runners to finish
 wait
 
+echo "[DEBUG] About to delete monitor..."
 # Stop resource monitoring by removing the flag file
 rm -f "${METRICS_DIR}/.monitoring_active"
 # Give the monitoring process a moment to detect the flag is gone
