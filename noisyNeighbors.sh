@@ -163,6 +163,12 @@ function analyze_metrics() {
       
       total_runtime=$(echo "$total_runtime + $runtime" | bc)
       
+      # Compare to fastest runtime (for percentage accuracy)
+      if (( $(echo "$runtime < $fastest_runtime" | bc -l) )); then
+        fastest_runtime=$runtime
+        fastest_runner=$i
+      fi
+      
       # Calculate slowdown compared to baseline
       local slowdown=$(echo "scale=2; (($runtime / $baseline_runtime) - 1) * 100" | bc)
       slowdown=$(printf "%.2f" "$slowdown")  # Format slowdown output properly
@@ -264,7 +270,7 @@ echo "----------------------------------------------------"
 echo "[INFO] PHASE 2: Running tests with $((N-1)) concurrent runners..."
 
 # Start all runners concurrently
-for (( i=1; i<=N; i++ )); do
+for (( i=2; i<=N; i++ )); do
   if [[ $i -eq 1 ]]; then
     # For runner #1, we'll capture detailed output
     run_test_plan "$i" "$TEST_PLAN" true &
