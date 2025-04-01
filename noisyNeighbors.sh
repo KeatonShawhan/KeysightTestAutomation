@@ -95,12 +95,11 @@ function run_test_plan() {
 
 # Function to collect resource usage during test execution
 function monitor_resources() {
-  local pid=$$
   local output_file="${METRICS_DIR}/resource_usage.log"
   
   echo "timestamp,cpu_percent,memory_kb" > "$output_file"
   
-  while kill -0 $pid 2>/dev/null; do
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
     # Get CPU and memory usage for all test processes
     local timestamp=$(date +%s)
     local cpu_usage=$(ps -e -o pcpu= | awk '{sum+=$1} END {print sum}')
@@ -172,6 +171,21 @@ function analyze_metrics() {
     echo "Slowest Runner: #$max_runner ($max_runtime seconds)"
     echo "Average Runtime: $avg_runtime seconds"
     echo "Average Slowdown: ${avg_slowdown}%"
+    
+    # Generate a summary file for easy reference
+    {
+      echo "Test Plan: $TEST_PLAN"
+      echo "Date: $(date)"
+      echo "Number of Runners: $N"
+      echo ""
+      echo "Baseline Runtime: $baseline_runtime seconds"
+      echo "Average Runtime with Noisy Neighbors: $avg_runtime seconds"
+      echo "Average Performance Impact: ${avg_slowdown}% slower"
+      echo "Fastest Runner: #$min_runner ($min_runtime seconds)"
+      echo "Slowest Runner: #$max_runner ($max_runtime seconds)"
+    } > "${METRICS_DIR}/summary_report.txt"
+    
+    echo "A summary report has been saved to: ${METRICS_DIR}/summary_report.txt"
   fi
   
   echo "----------------------------------------------------"
@@ -217,6 +231,9 @@ echo "[INFO] Starting performance test with $N runners"
 echo "[INFO] Baseline: Runner #1 running solo"
 echo "[INFO] Then: Runner #1 plus $(( N - 1 )) concurrent runners"
 
+# Create a file flag to indicate monitoring should continue
+touch "${METRICS_DIR}/.monitoring_active"
+
 # Start resource monitoring in the background
 monitor_resources &
 MONITOR_PID=$!
@@ -225,19 +242,21 @@ MONITOR_PID=$!
 echo "----------------------------------------------------"
 echo "[INFO] PHASE 1: Running baseline test on Runner #1 only..."
 run_test_plan 1 "$TEST_PLAN" true
-baseline_runtime=$(grep -oP 'runtime=\K[0-9.]+' "${METRICS_DIR}/runner_1_metrics.log")
-echo "[INFO] Baseline completed in $baseline_runtime seconds"
+local_baseline_runtime=$(grep -oP 'runtime=\K[0-9.]+' "${METRICS_DIR}/runner_1_metrics.log")
+echo "[INFO] Baseline completed in $local_baseline_runtime seconds"
 
 # Now run the same test with noisy neighbors
 echo "----------------------------------------------------"
 echo "[INFO] PHASE 2: Running tests with $((N-1)) concurrent runners..."
 
-# Start Runner #1 again (for comparative performance)
-run_test_plan 1 "$TEST_PLAN" true &
-
-# Start all other runners concurrently
-for (( i=2; i<=N; i++ )); do
-  run_test_plan "$i" "$TEST_PLAN" false &
+# Start all runners concurrently
+for (( i=1; i<=N; i++ )); do
+  if [[ $i -eq 1 ]]; then
+    # For runner #1, we'll capture detailed output
+    run_test_plan "$i" "$TEST_PLAN" true &
+  else
+    run_test_plan "$i" "$TEST_PLAN" false &
+  fi
   # Small delay to stagger starts slightly
   sleep 0.5
 done
@@ -245,8 +264,14 @@ done
 # Wait for all background runners to finish
 wait
 
-# Stop resource monitoring
-kill $MONITOR_PID 2>/dev/null || true
+# Stop resource monitoring by removing the flag file
+rm -f "${METRICS_DIR}/.monitoring_active"
+# Give the monitoring process a moment to detect the flag is gone
+sleep 2
+# Kill the monitoring process if it's still running
+if kill -0 $MONITOR_PID 2>/dev/null; then
+  kill $MONITOR_PID
+fi
 
 # Analyze performance impact
 analyze_metrics
