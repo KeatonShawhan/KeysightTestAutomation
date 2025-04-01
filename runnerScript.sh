@@ -286,16 +286,12 @@ function start_runners() {
     }
     echo "[INFO] Successfully copied Instruments.xml to ${runner_folder}/Settings/Bench/Default/"
 
-    # 6) Run Baseline.TapPlan
-    echo "[INFO] Running Baseline.TapPlan..."
-    if [[ -f "Baseline.TapPlan" ]]; then
-      ./tap run Baseline.TapPlan || {
-        echo "[WARNING] Running Baseline.TapPlan failed. Continuing anyway."
-      }
-      echo "[INFO] Baseline.TapPlan executed successfully."
-    else
-      echo "[WARNING] Baseline.TapPlan not found in runner directory. Skipping execution."
-    fi
+    # 6) Install PythonExamples package
+    echo "[INFO] Installing PythonExamples package..."
+    ./tap package install PythonExamples --version rc || {
+      echo "[WARNING] Installing PythonExamples package failed. Continuing anyway."
+    }
+    echo "[INFO] PythonExamples package installed successfully."
 
     # 7) Start the Runner in the background
     echo "[INFO] Starting the Runner on port $current_port..."
