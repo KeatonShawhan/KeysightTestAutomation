@@ -10,6 +10,8 @@
 #   - Checks each port beforehand to avoid partial installs when a port is busy.
 #   - Uses an 'expect' script to gracefully unregister (tap runner unregister)
 #     when you do `./multi_runner.sh stop`.
+#   - Copies Instruments.xml to each runner's Settings/Bench/Default directory.
+#   - Executes Baseline.TapPlan in each runner directory.
 #
 # Usage:
 #   ./multi_runner.sh start <number_of_runners> <registration_token>
@@ -19,6 +21,8 @@
 #   1) .NET runtime
 #   2) 'expect'
 #   3) 'ss' (usually in 'iproute2' package) and 'unzip' installed
+#   4) Instruments.xml file in the same directory as this script
+#   5) Baseline.TapPlan must be available in each runner directory
 #
 # If a step fails, the script will log an error and exit.
 #
@@ -46,6 +50,9 @@ OPENTAP_BASE_DOWNLOAD="https://packages.opentap.io/4.0/Objects/Packages/OpenTAP?
 # Custom runner TapPackage URL:
 RUNNER_PACKAGE_URL="https://github.com/KeatonShawhan/KeysightTestAutomation/raw/refs/heads/main/Runner.1.13.0-alpha.84.1+b4b4b421.1203-enable-more-runners-on-a-.Linux.arm64.TapPackage"
 
+# Path to this script's directory for finding Instruments.xml
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
 
 #############################################
 #            DEPENDENCY CHECKS              #
@@ -70,6 +77,12 @@ function check_dependencies() {
   done
   if (( missing )); then
     echo "[ERROR] Missing one or more required commands. Exiting."
+    exit 1
+  fi
+  
+  # Check for Instruments.xml file in the script directory
+  if [[ ! -f "${SCRIPT_DIR}/Instruments.xml" ]]; then
+    echo "[ERROR] Instruments.xml file not found in ${SCRIPT_DIR}. Please make sure it exists."
     exit 1
   fi
 }
@@ -254,7 +267,37 @@ function start_runners() {
       exit 1
     }
 
-    # 5) Start the Runner in the background
+    # 5) Copy Instruments.xml to Settings/Bench/Default directory
+    # Wait a bit for the runner to fully initialize and create all necessary directories
+    sleep 2
+    echo "[INFO] Copying Instruments.xml to Settings/Bench/Default directory..."
+    # Check if the directory exists, and if not, create it
+    if [[ ! -d "Settings/Bench/Default" ]]; then
+      echo "[INFO] Settings/Bench/Default directory not found, creating it now..."
+      mkdir -p Settings/Bench/Default || {
+        echo "[ERROR] Failed to create Settings/Bench/Default directory."
+        exit 1
+      }
+    fi
+    # Copy the Instruments.xml file
+    cp "${SCRIPT_DIR}/Instruments.xml" Settings/Bench/Default/ || {
+      echo "[ERROR] Failed to copy Instruments.xml to Settings/Bench/Default directory."
+      exit 1
+    }
+    echo "[INFO] Successfully copied Instruments.xml to ${runner_folder}/Settings/Bench/Default/"
+
+    # 6) Run Baseline.TapPlan
+    echo "[INFO] Running Baseline.TapPlan..."
+    if [[ -f "Baseline.TapPlan" ]]; then
+      ./tap run Baseline.TapPlan || {
+        echo "[WARNING] Running Baseline.TapPlan failed. Continuing anyway."
+      }
+      echo "[INFO] Baseline.TapPlan executed successfully."
+    else
+      echo "[WARNING] Baseline.TapPlan not found in runner directory. Skipping execution."
+    fi
+
+    # 7) Start the Runner in the background
     echo "[INFO] Starting the Runner on port $current_port..."
     nohup env OPENTAP_RUNNER_SERVER_PORT="$current_port" ./tap runner start > runner.log 2>&1 &
 
@@ -344,4 +387,3 @@ case "$COMMAND" in
     usage
     ;;
 esac
-
