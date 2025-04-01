@@ -278,15 +278,37 @@ done
 jobs -l  # Lists all active background jobs
 echo "[DEBUG] Waiting..."
 
-while true; do
-  RUNNING_JOBS=$(jobs -p)
-  if [[ -z "$RUNNING_JOBS" ]]; then
-    echo "[INFO] All test runners have completed."
-    break  # No more jobs running, exit loop safely
-  fi
+# Function to stop all remaining jobs if they exceed allowed time
+function stop_stalled_jobs() {
+  local TIMEOUT=60  # Set a reasonable timeout for runners
+  local start_time=$(date +%s)
+  
+  while true; do
+    local current_time=$(date +%s)
+    local elapsed_time=$((current_time - start_time))
 
-  sleep 1  # Check every second
-done
+    # Check if timeout exceeded
+    if (( elapsed_time > TIMEOUT )); then
+      echo "[ERROR] Some test runners are taking too long. Killing them..."
+      kill $(jobs -p) 2>/dev/null
+      break
+    fi
+
+    # Check if all jobs have exited
+    local RUNNING_JOBS=$(jobs -p)
+    if [[ -z "$RUNNING_JOBS" ]]; then
+      break
+    fi
+
+    sleep 1
+  done
+
+  echo "[INFO] All test runners have completed."
+}
+
+# Call the function to actively monitor and terminate stuck jobs
+stop_stalled_jobs
+
 
 
 
