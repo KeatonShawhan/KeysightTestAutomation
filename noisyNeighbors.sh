@@ -273,6 +273,9 @@ if kill -0 $MONITOR_PID 2>/dev/null; then
   kill $MONITOR_PID
 fi
 
+# If this doens't echo, we are hanging after finishing the test plans
+echo "[DEBUG] About to analyze metrics..."
+
 # Analyze performance impact
 analyze_metrics
 
