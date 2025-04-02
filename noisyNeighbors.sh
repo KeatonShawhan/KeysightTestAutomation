@@ -171,9 +171,11 @@ function analyze_metrics() {
         fastest_runner=$i
       fi
       
-      # Calculate slowdown compared to baseline
-      local slowdown=$(echo "scale=2; (($runtime / $baseline_runtime) - 1) * 100" | bc)
-      slowdown=$(printf "%.2f" "$slowdown")  # Format slowdown output properly
+      # Calculate slowdown compared to baseline with increased precision
+      local slowdown=$(echo "scale=4; (($runtime / $baseline_runtime) - 1) * 100" | bc)
+      
+      # Format with more precision to capture small differences
+      slowdown=$(printf "%.4f" "$slowdown")  # Using 4 decimal places instead of 2
 
       echo "Runner #$i: ${runtime} seconds (${slowdown}% slower than baseline)"
     else
@@ -183,8 +185,12 @@ function analyze_metrics() {
 
   # Calculate average (excluding baseline)
   if (( N > 1 )); then
-    local avg_runtime=$(echo "scale=2; $total_runtime / (${N} - 1)" | bc)
-    local avg_slowdown=$(echo "scale=2; ($avg_runtime / $baseline_runtime - 1) * 100" | bc)
+    local avg_runtime=$(echo "scale=4; $total_runtime / (${N} - 1)" | bc)
+    local avg_slowdown=$(echo "scale=4; ($avg_runtime / $baseline_runtime - 1) * 100" | bc)
+    
+    # Format with consistent precision
+    avg_runtime=$(printf "%.4f" "$avg_runtime")
+    avg_slowdown=$(printf "%.4f" "$avg_slowdown")
     
     echo "----------------------------------------------------"
     echo "Summary Statistics:"
@@ -193,7 +199,7 @@ function analyze_metrics() {
     echo "Average Runtime: $avg_runtime seconds"
     echo "Average Slowdown: ${avg_slowdown}%"
     
-    # Generate a summary file for easy reference
+    # Generate a summary file for easy reference with improved precision
     {
       echo "Test Plan: $TEST_PLAN"
       echo "Date: $(date)"
