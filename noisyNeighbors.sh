@@ -118,6 +118,8 @@ function analyze_metrics() {
   local max_runner=1
   local min_runtime=9999999  # High enough to ensure proper min selection
   local min_runner=1
+  local fastest_runtime=9999999  # Initialize for comparison
+  local fastest_runner=1
   
   echo "----------------------------------------------------"
   echo "[INFO] Performance Analysis:"
@@ -269,59 +271,62 @@ echo "[INFO] Baseline completed in $local_baseline_runtime seconds"
 echo "----------------------------------------------------"
 echo "[INFO] PHASE 2: Running tests with $((N-1)) concurrent runners..."
 
+# Array to hold PIDs of all runners
+declare -a RUNNER_PIDS
+
 # Start all runners concurrently
 for (( i=2; i<=N; i++ )); do
-  if [[ $i -eq 1 ]]; then
-    # For runner #1, we'll capture detailed output
-    run_test_plan "$i" "$TEST_PLAN" true &
-  else
-    run_test_plan "$i" "$TEST_PLAN" false &
-  fi
+  # Run each test plan in a subshell and capture its PID
+  (run_test_plan "$i" "$TEST_PLAN" false) &
+  RUNNER_PIDS+=($!)
   # Small delay to stagger starts slightly
   sleep 0.5
 done
 
-jobs -l  # Lists all active background jobs
-echo "[DEBUG] Waiting..."
+echo "[INFO] Started $(( N - 1 )) concurrent runners."
+echo "[INFO] Waiting for all test runners to complete..."
 
-# Function to stop all remaining jobs if they exceed allowed time
-function stop_stalled_jobs() {
-  local TIMEOUT=60  # Set a reasonable timeout for runners
-  local start_time=$(date +%s)
-  
-  while true; do
-    local current_time=$(date +%s)
-    local elapsed_time=$((current_time - start_time))
+# Wait for all runners to complete with timeout
+TIMEOUT=80  # 80 seconds max
+START_TIME=$(date +%s)
 
-    # Check if timeout exceeded
-    if (( elapsed_time > TIMEOUT )); then
-      echo "[ERROR] Some test runners are taking too long. Killing them..."
-      kill $(jobs -p) 2>/dev/null
-      break
+# Function to check if all runners are complete
+function all_runners_complete() {
+  for pid in "${RUNNER_PIDS[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      # Process is still running
+      return 1
     fi
-
-    # Check if all jobs have exited
-    local RUNNING_JOBS=$(jobs -p)
-    if [[ -z "$RUNNING_JOBS" ]]; then
-      break
-    fi
-
-    sleep 1
   done
-
-  echo "[INFO] All test runners have completed."
+  # All processes have completed
+  return 0
 }
 
-# Call the function to actively monitor and terminate stuck jobs
-stop_stalled_jobs
+# Wait for all processes to finish with a timeout
+COMPLETED=false
+while ! $COMPLETED; do
+  CURRENT_TIME=$(date +%s)
+  ELAPSED_TIME=$((CURRENT_TIME - START_TIME))
+  
+  # Check for timeout
+  if (( ELAPSED_TIME > TIMEOUT )); then
+    echo "[WARNING] Timeout reached. Terminating any remaining test runners..."
+    for pid in "${RUNNER_PIDS[@]}"; do
+      kill "$pid" 2>/dev/null || true
+    done
+    break
+  fi
+  
+  # Check if all processes have completed
+  if all_runners_complete; then
+    COMPLETED=true
+    echo "[INFO] All test runners have completed successfully."
+  else
+    echo "[INFO] Waiting for runners to complete... (${ELAPSED_TIME}s elapsed)"
+    sleep 5
+  fi
+done
 
-
-
-
-# Wait for all background runners to finish
-# wait
-
-echo "[DEBUG] About to delete monitor..."
 # Stop resource monitoring by removing the flag file
 rm -f "${METRICS_DIR}/.monitoring_active"
 # Give the monitoring process a moment to detect the flag is gone
@@ -331,8 +336,7 @@ if kill -0 $MONITOR_PID 2>/dev/null; then
   kill $MONITOR_PID
 fi
 
-# If this doens't echo, we are hanging after finishing the test plans
-echo "[DEBUG] About to analyze metrics..."
+echo "[INFO] Analyzing performance metrics..."
 
 # Analyze performance impact
 analyze_metrics
