@@ -3,7 +3,7 @@
 set -e
 
 # --- CONFIGURATION ---
-STARTING_PORT=20113
+STARTING_PORT=20110
 MAX_RUNNERS=97
 TAP_URL="https://test-automation.pw.keysight.com"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -293,7 +293,7 @@ echo "[INFO] Started $(( N - 1 )) concurrent runners."
 echo "[INFO] Waiting for all test runners to complete..."
 
 # Wait for all runners to complete with timeout
-TIMEOUT=80  # 80 seconds max
+TIMEOUT=600  # 10 min max
 START_TIME=$(date +%s)
 
 # Function to check if all runners are complete
