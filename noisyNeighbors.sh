@@ -53,7 +53,7 @@ function run_test_plan() {
   local runner_dir="$HOME/runner_$runner_id"
   local runner_port=$((STARTING_PORT + runner_id - 1))
   local test_plan_path="${SCRIPT_DIR}/${test_plan}"
-  
+  # port might not be accurate because noisyNeighbors.sh assumes every port is open when creating runners
   echo "[INFO] Runner #$runner_id executing test plan: $test_plan (Port: $runner_port)"
   
   if [[ ! -d "$runner_dir" ]]; then
