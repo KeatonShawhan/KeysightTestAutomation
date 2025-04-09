@@ -1,48 +1,25 @@
 #!/usr/bin/env bash
 #
-# active_lab.sh
+# network_outage.sh
 #
-# Spins up a specified number of OpenTAP runners on a Raspberry Pi, then for a
-# specified "simulation time," each runner continuously runs a given .TapFile
-# at random intervals of 5-30s in parallel. Once the simulation time is up,
-# the script waits for any in-progress test plans to finish, then tears down
-# all runners.
+# Simulates a network outage in a test automation lab. Spins up runners,
+# executes a test plan for a while, simulates a network outage by stopping
+# runners, then brings them back online and resumes execution.
 #
 # Usage:
-#   ./active_lab.sh <runners> <simulation_time_seconds> <test_plan_path> <registration_token>
-#
-# Example:
-#   ./active_lab.sh 5 120 MyPlan.TapPlan <myRegToken>
-#   (5 runners, 120s simulation time, test plan MyPlan.TapPlan, provided registration token)
-#
-# Requirements:
-#   - runnerScript.sh in the same directory
-#   - .NET runtime, expect, ss, unzip, curl
-#   - The specified test plan must be a valid .TapFile
+#   ./network_outage.sh <runners> <runtime_before_outage_sec> <outage_duration_sec> <test_plan_path> <registration_token>
 #
 
-#############################################
-#             CONFIG & GLOBALS             #
-#############################################
+set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
-
 METRICS_DIR="${SCRIPT_DIR}/metrics"
 mkdir -p "${METRICS_DIR}"
 
-#############################################
-#        UTILITY & HELPER FUNCTIONS        #
-#############################################
-
 usage() {
   echo "Usage:"
-  echo "  $0 <runners> <simulation_time_sec> <test_plan_path> <registration_token>"
-  echo ""
-  echo "  <runners>                Number of runners to spin up (>=1)."
-  echo "  <simulation_time_sec>    Total time in seconds for random scheduling (>=30)."
-  echo "  <test_plan_path>         Path to a valid .TapFile."
-  echo "  <registration_token>     Registration token for tap runner register."
+  echo "  $0 <runners> <runtime_before_outage> <outage_duration> <test_plan_path> <registration_token>"
   exit 1
 }
 
@@ -57,7 +34,7 @@ check_command_exists() {
 
 check_dependencies() {
   local missing=0
-  for cmd in dotnet expect ss unzip curl; do
+  for cmd in dotnet ss unzip curl; do
     check_command_exists "$cmd" || missing=1
   done
   if (( missing )); then
@@ -66,8 +43,6 @@ check_dependencies() {
   fi
 }
 
-# Run a test plan (.TapFile) for a single "run" event on a specific runner.
-# Produces output and metrics logs in the current session folder.
 run_test_plan() {
   local runner_id="$1"
   local run_index="$2"
@@ -87,10 +62,10 @@ run_test_plan() {
   start_ts=$(date +%s.%N)
 
   cd "$runner_folder" || return 1
+  echo "[INFO] Runner #$runner_id (run #$run_index) starting test plan..."
 
-  echo "[INFO] Runner #$runner_id (run #$run_index) starting test plan: $test_plan_path"
   if ! ./tap run "$test_plan_path" &> "$output_file"; then
-    echo "[ERROR] Runner #$runner_id encountered an error running $test_plan_path (run #$run_index)"
+    echo "[ERROR] Runner #$runner_id error on test plan (run #$run_index)"
   fi
 
   end_ts=$(date +%s.%N)
@@ -103,57 +78,34 @@ run_test_plan() {
   echo "[INFO] Runner #$runner_id (run #$run_index) completed in ${duration}s"
 }
 
-# This function runs in the background for each runner. It loops until the
-# simulation time is over, scheduling test-plan runs at random intervals (5..30s).
 runner_loop() {
   local runner_id="$1"
-  local deadline="$2"        # epoch seconds at which we stop scheduling new runs
-  local test_plan_path="$3"  # absolute or script-relative
+  local deadline="$2"
+  local test_plan_path="$3"
   local session_folder="$4"
-
   local run_count=1
 
   while true; do
-    local now
-    now=$(date +%s)
-
-    # Check if we have already reached or passed the deadline
+    local now=$(date +%s)
     if (( now >= deadline )); then
       break
     fi
 
-    # Generate a random sleep between 5 and 30 seconds
-    local sleep_sec=$(( (RANDOM % 26) + 5 ))  # [5..30]
-
-    # If adding this sleep would cross the deadline, we won't start a new run
-    if (( (now + sleep_sec) >= deadline )); then
-      break
-    fi
-
-    # Sleep the random interval
-    sleep "$sleep_sec"
-
-    # Check again after sleeping
-    now=$(date +%s)
-    if (( now >= deadline )); then
-      break
-    fi
-
-    # Time is valid, let's do another run
     run_test_plan "$runner_id" "$run_count" "$test_plan_path" "$session_folder"
-
     (( run_count++ ))
+
+    local sleep_sec=$(( (RANDOM % 5) + 2 )) # Shorter sleep (2–6s)
+    sleep "$sleep_sec"
   done
 
-  echo "[INFO] Runner #$runner_id finished its loop. (Last run index was $((run_count - 1)))."
+  echo "[INFO] Runner #$runner_id exiting after $((run_count - 1)) runs."
 }
 
-# Stop all runners (like before). We'll just call runnerScript.sh stop
 stop_all_runners() {
   if [[ -f "$RUNNER_SCRIPT" ]]; then
     "$RUNNER_SCRIPT" stop
   else
-    echo "[ERROR] runnerScript.sh not found at '$RUNNER_SCRIPT'."
+    echo "[ERROR] runnerScript.sh not found."
   fi
 }
 
@@ -161,93 +113,72 @@ stop_all_runners() {
 #              MAIN SCRIPT LOGIC           #
 #############################################
 
-# 1) Parse arguments
-if [[ $# -ne 4 ]]; then
-  usage
-fi
+if [[ $# -ne 5 ]]; then usage; fi
 
 NUM_RUNNERS="$1"
-SIM_TIME="$2"
-USER_TEST_PLAN="$3"
-REG_TOKEN="$4"
+RUNTIME_BEFORE_OUTAGE="$2"
+OUTAGE_DURATION="$3"
+USER_TEST_PLAN="$4"
+REG_TOKEN="$5"
 
-# Basic validation
-if (( NUM_RUNNERS < 1 )); then
-  echo "[ERROR] Number of runners must be >= 1."
-  exit 1
-fi
-
-if (( SIM_TIME < 30 )); then
-  echo "[ERROR] Simulation time must be at least 30 seconds."
-  exit 1
-fi
-
-# 2) Check dependencies
 check_dependencies
 
-# 3) Resolve test plan path relative to script directory if needed
-ABS_TEST_PLAN=""
+# Resolve test plan path
 if [[ -f "$USER_TEST_PLAN" ]]; then
-  # If user gave an absolute path or a relative path from current shell
   ABS_TEST_PLAN="$(cd "$(dirname "$USER_TEST_PLAN")"; pwd)/$(basename "$USER_TEST_PLAN")"
 elif [[ -f "${SCRIPT_DIR}/${USER_TEST_PLAN}" ]]; then
-  # If the file exists relative to the script's directory
-  ABS_TEST_PLAN="$(cd "$SCRIPT_DIR"; pwd)/$(basename "$USER_TEST_PLAN")"
+  ABS_TEST_PLAN="${SCRIPT_DIR}/${USER_TEST_PLAN}"
 else
-  echo "[ERROR] Test plan not found at '$USER_TEST_PLAN' nor '$SCRIPT_DIR/$USER_TEST_PLAN'"
+  echo "[ERROR] Test plan not found: $USER_TEST_PLAN"
   exit 1
 fi
 
-# 4) Create a dated subfolder in metrics to store logs for this run
+# Metrics session folder
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-SESSION_FOLDER="${METRICS_DIR}/${RUN_TIMESTAMP}"
+SESSION_FOLDER="${METRICS_DIR}/network_outage_${RUN_TIMESTAMP}"
 mkdir -p "$SESSION_FOLDER"
 
-echo "----------------------------------------------------"
-echo "[INFO] This run's metrics/logs will be in: $SESSION_FOLDER"
-
-# 5) Stop all runners (clean slate)
-echo "[INFO] Stopping any existing runners first..."
+echo "[INFO] Stopping any existing runners..."
 stop_all_runners
 
-# 6) Spin up the requested number of runners
 echo "[INFO] Spinning up $NUM_RUNNERS runner(s)..."
-if [[ -f "$RUNNER_SCRIPT" ]]; then
-  "$RUNNER_SCRIPT" start "$NUM_RUNNERS" "$REG_TOKEN"
-else
-  echo "[ERROR] runnerScript.sh not found at '$RUNNER_SCRIPT'"
-  exit 1
-fi
+"$RUNNER_SCRIPT" start "$NUM_RUNNERS" "$REG_TOKEN"
 
-# 7) Start the simulation
-echo "----------------------------------------------------"
-echo "[INFO] Beginning simulation with $NUM_RUNNERS runners for $SIM_TIME seconds."
-SIM_START=$(date +%s)
-DEADLINE=$(( SIM_START + SIM_TIME ))
-
-# Spawn a background job for each runner
-declare -a RUNNER_PIDS=()
+# Start baseline activity
+echo "[INFO] Running baseline test plan for $RUNTIME_BEFORE_OUTAGE seconds..."
+declare -a PIDS=()
+END_TIME=$(( $(date +%s) + RUNTIME_BEFORE_OUTAGE ))
 for runner_id in $(seq 1 "$NUM_RUNNERS"); do
-  (
-    runner_loop "$runner_id" "$DEADLINE" "$ABS_TEST_PLAN" "$SESSION_FOLDER"
-  ) &
-  RUNNER_PIDS+=($!)
+  runner_loop "$runner_id" "$END_TIME" "$ABS_TEST_PLAN" "$SESSION_FOLDER" &
+  PIDS+=($!)
 done
 
-# Wait for all runners to complete their loop
-echo "[INFO] All runners started their loops. Waiting for them to finish..."
-for pid in "${RUNNER_PIDS[@]}"; do
-  wait "$pid"
+for pid in "${PIDS[@]}"; do wait "$pid"; done
+
+# Simulate outage
+echo "[INFO] Simulating network outage by stopping runners for $OUTAGE_DURATION seconds..."
+stop_all_runners
+sleep "$OUTAGE_DURATION"
+
+# Reconnect phase
+echo "[INFO] Reconnecting: restarting all runners..."
+"$RUNNER_SCRIPT" start "$NUM_RUNNERS" "$REG_TOKEN"
+
+# Run post-outage plan
+POST_OUTAGE_DURATION=15
+RECONNECT_END_TIME=$(( $(date +%s) + POST_OUTAGE_DURATION ))
+echo "[INFO] Running post-outage test plans for $POST_OUTAGE_DURATION seconds..."
+PIDS=()
+for runner_id in $(seq 1 "$NUM_RUNNERS"); do
+  runner_loop "$runner_id" "$RECONNECT_END_TIME" "$ABS_TEST_PLAN" "$SESSION_FOLDER" &
+  PIDS+=($!)
 done
 
-echo "[INFO] All runner loops have completed. This means no new test plans will be started."
+for pid in "${PIDS[@]}"; do wait "$pid"; done
 
-# 8) Stop all runners (they might be idle at this point)
-echo "----------------------------------------------------"
-echo "[INFO] Simulation time ended and all test-plan loops are done. Stopping all runners."
+# Tear down runners after post-outage
+echo "[INFO] Stopping all runners after post-outage run."
 stop_all_runners
 
 echo "----------------------------------------------------"
-echo "[INFO] Done. Metrics and outputs are in: $SESSION_FOLDER"
-echo "[INFO] End of script."
-
+echo "[INFO] Simulation complete. Logs in: $SESSION_FOLDER"
