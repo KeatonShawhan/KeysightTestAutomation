@@ -12,7 +12,7 @@ METRICS_DIR="${SCRIPT_DIR}/metrics"
 # Create metrics directory if it doesn't exist
 mkdir -p "$METRICS_DIR"
 
-# Function to check if runner directories exist
+# Function to check if runners directories exist
 function check_runners_exist() {
   local count=0
   for i in $(seq 1 "$MAX_RUNNERS"); do
@@ -93,21 +93,353 @@ function run_test_plan() {
   echo "[INFO] Runner #$runner_id completed in $runtime seconds"
 }
 
-# Function to collect resource usage during test execution
+# Enhanced function to collect system resource usage during test execution
 function monitor_resources() {
   local output_file="${METRICS_DIR}/resource_usage.log"
   
-  echo "timestamp,cpu_percent,memory_kb" > "$output_file"
+  echo "timestamp,cpu_percent,memory_kb,disk_io_read_kb,disk_io_write_kb,network_rx_bytes,network_tx_bytes,load_avg" > "$output_file"
   
   while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
-    # Get CPU and memory usage for all test processes
     local timestamp=$(date +%s)
     local cpu_usage=$(ps -e -o pcpu= | awk '{sum+=$1} END {print sum}')
     local mem_usage=$(ps -e -o rss= | awk '{sum+=$1} END {print sum}')
     
-    echo "$timestamp,$cpu_usage,$mem_usage" >> "$output_file"
+    # Disk I/O (read/write in KB/s)
+    if command -v iostat &>/dev/null; then
+      local disk_io=$(iostat -d -k 1 2 | tail -n 2 | head -n 1)
+      local disk_read=$(echo "$disk_io" | awk '{print $3}')
+      local disk_write=$(echo "$disk_io" | awk '{print $4}')
+    else
+      local disk_read=0
+      local disk_write=0
+    fi
+    
+    # Network traffic (bytes received/transmitted)
+    if [[ -f /proc/net/dev ]]; then
+      local net_stats=$(cat /proc/net/dev | grep -v 'lo:' | grep ':' | awk '{rx+=$2; tx+=$10} END {print rx","tx}')
+      local net_rx=$(echo "$net_stats" | cut -d',' -f1)
+      local net_tx=$(echo "$net_stats" | cut -d',' -f2)
+    else
+      local net_rx=0
+      local net_tx=0
+    fi
+    
+    # Load average (1min)
+    local load_avg=$(cut -d ' ' -f1 /proc/loadavg)
+    
+    echo "$timestamp,$cpu_usage,$mem_usage,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" >> "$output_file"
     sleep 1
   done
+}
+
+# Function to monitor detailed CPU metrics
+function monitor_detailed_cpu() {
+  local output_file="${METRICS_DIR}/cpu_detailed.log"
+  
+  echo "timestamp,user,nice,system,idle,iowait,irq,softirq,steal,guest" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp=$(date +%s)
+    if [[ -f /proc/stat ]]; then
+      local cpu_stats=$(grep '^cpu ' /proc/stat | awk '{print $2","$3","$4","$5","$6","$7","$8","$9","$10}')
+      echo "$timestamp,$cpu_stats" >> "$output_file"
+    fi
+    sleep 1
+  done
+}
+
+# Function to monitor CPU usage per core
+function monitor_cpu_cores() {
+  local output_file="${METRICS_DIR}/cpu_cores.log"
+  local num_cores=$(grep -c ^processor /proc/cpuinfo)
+  
+  # Create header with core numbers
+  local header="timestamp"
+  for i in $(seq 0 $((num_cores-1))); do
+    header="$header,core$i"
+  done
+  
+  echo "$header" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp=$(date +%s)
+    local line="$timestamp"
+    
+    # Get per-core CPU usage with mpstat if available
+    if command -v mpstat &>/dev/null; then
+      local cores_data=$(mpstat -P ALL 1 1 | grep -E "^[0-9]+" | awk '{print 100-$NF}')
+      
+      # Skip the first line which is the average
+      local core_values=$(echo "$cores_data" | tail -n +2)
+      
+      # Append each core's usage to the line
+      while read -r usage; do
+        line="$line,$usage"
+      done <<< "$core_values"
+    else
+      # Fall back to /proc/stat if mpstat is not available
+      for i in $(seq 0 $((num_cores-1))); do
+        if [[ -f /proc/stat ]]; then
+          local core_info=$(grep "^cpu$i " /proc/stat)
+          local user=$(echo "$core_info" | awk '{print $2}')
+          local nice=$(echo "$core_info" | awk '{print $3}')
+          local system=$(echo "$core_info" | awk '{print $4}')
+          local idle=$(echo "$core_info" | awk '{print $5}')
+          local total=$((user + nice + system + idle))
+          local usage=$(echo "scale=2; 100 - ($idle * 100 / $total)" | bc)
+          line="$line,$usage"
+        else
+          line="$line,0"
+        fi
+      done
+    fi
+    
+    echo "$line" >> "$output_file"
+    sleep 1
+  done
+}
+
+# Function to monitor detailed memory statistics
+function monitor_detailed_memory() {
+  local output_file="${METRICS_DIR}/memory_detailed.log"
+  
+  echo "timestamp,total_kb,free_kb,used_kb,buffers_kb,cached_kb,available_kb,swap_total_kb,swap_free_kb" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp=$(date +%s)
+    
+    if [[ -f /proc/meminfo ]]; then
+      # Extract memory statistics
+      local mem_total=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+      local mem_free=$(grep MemFree /proc/meminfo | awk '{print $2}')
+      local mem_buffers=$(grep Buffers /proc/meminfo | awk '{print $2}')
+      local mem_cached=$(grep "^Cached:" /proc/meminfo | awk '{print $2}')
+      local mem_available=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+      local swap_total=$(grep SwapTotal /proc/meminfo | awk '{print $2}')
+      local swap_free=$(grep SwapFree /proc/meminfo | awk '{print $2}')
+      local mem_used=$((mem_total - mem_free - mem_buffers - mem_cached))
+      
+      echo "$timestamp,$mem_total,$mem_free,$mem_used,$mem_buffers,$mem_cached,$mem_available,$swap_total,$swap_free" >> "$output_file"
+    fi
+    sleep 1
+  done
+}
+
+# Function to monitor per-runner process metrics
+function monitor_runner_processes() {
+  local output_file="${METRICS_DIR}/runner_processes.log"
+  
+  echo "timestamp,runner_id,pid,cpu_percent,memory_kb,threads,fds" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp=$(date +%s)
+    
+    for i in $(seq 1 "$N"); do
+      # Find the PID of the TAP process for this runner
+      if command -v pgrep &>/dev/null; then
+        local runner_pid=$(pgrep -f "runner_$i.*tap run")
+        
+        if [[ -n "$runner_pid" ]]; then
+          local cpu_usage=$(ps -p "$runner_pid" -o pcpu= | tr -d ' ')
+          local mem_usage=$(ps -p "$runner_pid" -o rss= | tr -d ' ')
+          local thread_count=$(ps -p "$runner_pid" -o nlwp= | tr -d ' ')
+          local fd_count=0
+          
+          if [[ -d "/proc/$runner_pid/fd" ]]; then
+            fd_count=$(ls -1 /proc/"$runner_pid"/fd 2>/dev/null | wc -l)
+          fi
+          
+          echo "$timestamp,$i,$runner_pid,$cpu_usage,$mem_usage,$thread_count,$fd_count" >> "$output_file"
+        fi
+      fi
+    done
+    
+    sleep 1
+  done
+}
+
+# Function to monitor network connections
+function monitor_network_connections() {
+  local output_file="${METRICS_DIR}/network_connections.log"
+  
+  echo "timestamp,total_connections,established,time_wait,close_wait" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp=$(date +%s)
+    
+    if command -v netstat &>/dev/null; then
+      # Get connection counts by state
+      local netstat_output=$(netstat -an)
+      local total=$(echo "$netstat_output" | wc -l)
+      local established=$(echo "$netstat_output" | grep ESTABLISHED | wc -l)
+      local time_wait=$(echo "$netstat_output" | grep TIME_WAIT | wc -l)
+      local close_wait=$(echo "$netstat_output" | grep CLOSE_WAIT | wc -l)
+      
+      echo "$timestamp,$total,$established,$time_wait,$close_wait" >> "$output_file"
+    elif command -v ss &>/dev/null; then
+      # Alternative using ss command
+      local ss_output=$(ss -tan)
+      local total=$(echo "$ss_output" | wc -l)
+      local established=$(echo "$ss_output" | grep ESTAB | wc -l)
+      local time_wait=$(echo "$ss_output" | grep TIME-WAIT | wc -l)
+      local close_wait=$(echo "$ss_output" | grep CLOSE-WAIT | wc -l)
+      
+      echo "$timestamp,$total,$established,$time_wait,$close_wait" >> "$output_file"
+    fi
+    
+    sleep 1
+  done
+}
+
+# Function to monitor file system activity
+function monitor_filesystem_activity() {
+  local output_file="${METRICS_DIR}/filesystem_activity.log"
+  local runner_dir="$HOME"
+  
+  echo "timestamp,open_files,disk_reads,disk_writes" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp=$(date +%s)
+    local open_files=0
+    local disk_reads=0
+    local disk_writes=0
+    
+    # Count open files if lsof is available
+    if command -v lsof &>/dev/null; then
+      open_files=$(lsof 2>/dev/null | grep -c "$runner_dir")
+    fi
+    
+    # Get disk activity if iostat is available
+    if command -v iostat &>/dev/null; then
+      local disk_stats=$(iostat -d 1 2 | tail -n 2 | head -n 1)
+      disk_reads=$(echo "$disk_stats" | awk '{print $3}')
+      disk_writes=$(echo "$disk_stats" | awk '{print $4}')
+    fi
+    
+    echo "$timestamp,$open_files,$disk_reads,$disk_writes" >> "$output_file"
+    sleep 1
+  done
+}
+
+# Function to measure TAP command response times
+function measure_tap_response_time() {
+  local output_file="${METRICS_DIR}/tap_response_times.log"
+  
+  echo "timestamp,runner_id,command,response_time_ms" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp=$(date +%s)
+    
+    # Sample a few runners (randomly select 3, or fewer if N < 3)
+    local sample_size=$((N > 3 ? 3 : N))
+    local sample_runners=$(seq 1 "$N" | shuf | head -n "$sample_size")
+    
+    for i in $sample_runners; do
+      local runner_dir="$HOME/runner_$i"
+      if [[ -d "$runner_dir" ]]; then
+        cd "$runner_dir" || continue
+        
+        # Measure response time for a simple tap command
+        local start_time=$(date +%s.%N)
+        ./tap info &>/dev/null
+        local end_time=$(date +%s.%N)
+        local response_time=$(echo "($end_time - $start_time) * 1000" | bc)
+        
+        echo "$timestamp,$i,info,$response_time" >> "$output_file"
+      fi
+    done
+    
+    sleep 5  # Less frequent check to reduce impact
+  done
+}
+
+# Function to generate visualization charts from collected metrics
+function generate_charts() {
+  if ! command -v gnuplot &>/dev/null; then
+    echo "[WARNING] gnuplot not found. Skipping chart generation."
+    return
+  fi
+  
+  local charts_dir="${METRICS_DIR}/charts"
+  mkdir -p "$charts_dir"
+  
+  echo "[INFO] Generating performance charts..."
+  
+  # CPU usage chart
+  gnuplot <<EOF
+set terminal png size 800,600
+set output '$charts_dir/cpu_usage.png'
+set title 'CPU Usage Over Time'
+set xlabel 'Time (seconds from start)'
+set ylabel 'CPU Usage (%)'
+set grid
+plot '$METRICS_DIR/resource_usage.log' using (\$1-STARTTIME):2 with lines title 'CPU Usage' lw 2
+EOF
+
+  # Memory usage chart
+  gnuplot <<EOF
+set terminal png size 800,600
+set output '$charts_dir/memory_usage.png'
+set title 'Memory Usage Over Time'
+set xlabel 'Time (seconds from start)'
+set ylabel 'Memory Usage (MB)'
+set grid
+plot '$METRICS_DIR/resource_usage.log' using (\$1-STARTTIME):(\$3/1024) with lines title 'Memory Usage' lw 2
+EOF
+
+  # Load average chart
+  gnuplot <<EOF
+set terminal png size 800,600
+set output '$charts_dir/load_average.png'
+set title 'System Load Average'
+set xlabel 'Time (seconds from start)'
+set ylabel 'Load Average (1 min)'
+set grid
+plot '$METRICS_DIR/resource_usage.log' using (\$1-STARTTIME):8 with lines title 'Load Average' lw 2
+EOF
+
+  # Network traffic chart
+  gnuplot <<EOF
+set terminal png size 800,600
+set output '$charts_dir/network_traffic.png'
+set title 'Network Traffic'
+set xlabel 'Time (seconds from start)'
+set ylabel 'Traffic (KB)'
+set grid
+plot '$METRICS_DIR/resource_usage.log' using (\$1-STARTTIME):(\$5/1024) with lines title 'RX' lw 2, \
+     '$METRICS_DIR/resource_usage.log' using (\$1-STARTTIME):(\$6/1024) with lines title 'TX' lw 2
+EOF
+
+  # CPU cores heatmap if the file exists and has data
+  if [[ -f "${METRICS_DIR}/cpu_cores.log" ]] && [[ $(wc -l < "${METRICS_DIR}/cpu_cores.log") -gt 1 ]]; then
+    gnuplot <<EOF
+set terminal png size 1000,600
+set output '$charts_dir/cpu_cores_heatmap.png'
+set title 'CPU Cores Usage Heatmap'
+set xlabel 'Time (seconds from start)'
+set ylabel 'CPU Core'
+set view map
+set cblabel 'Usage %'
+set palette defined (0 'blue', 50 'green', 75 'yellow', 100 'red')
+NUM_CORES=$(awk -F, '{print NF-1; exit}' "${METRICS_DIR}/cpu_cores.log")
+splot '$METRICS_DIR/cpu_cores.log' using (\$1-STARTTIME):0:2 with pm3d title ''
+EOF
+  fi
+
+  # Runner response times
+  if [[ -f "${METRICS_DIR}/tap_response_times.log" ]] && [[ $(wc -l < "${METRICS_DIR}/tap_response_times.log") -gt 1 ]]; then
+    gnuplot <<EOF
+set terminal png size 800,600
+set output '$charts_dir/tap_response_times.png'
+set title 'TAP Command Response Times'
+set xlabel 'Time (seconds from start)'
+set ylabel 'Response Time (ms)'
+set grid
+plot '$METRICS_DIR/tap_response_times.log' using (\$1-STARTTIME):4 with points title 'TAP Response Time' pt 7
+EOF
+  fi
+
+  echo "[INFO] Charts generated in $charts_dir"
 }
 
 # Function to analyze and display performance metrics
@@ -210,6 +542,28 @@ function analyze_metrics() {
       echo "Average Performance Impact: ${avg_slowdown}% slower"
       echo "Fastest Runner: #$min_runner ($min_runtime seconds)"
       echo "Slowest Runner: #$max_runner ($max_runtime seconds)"
+      
+      # Add system resource statistics if available
+      if [[ -f "${METRICS_DIR}/resource_usage.log" ]]; then
+        echo ""
+        echo "System Resource Statistics:"
+        
+        # Calculate average CPU usage
+        local avg_cpu=$(awk -F, 'NR>1 {sum+=$2; count++} END {printf "%.2f", sum/count}' "${METRICS_DIR}/resource_usage.log")
+        echo "Average CPU Usage: ${avg_cpu}%"
+        
+        # Calculate peak CPU usage
+        local peak_cpu=$(awk -F, 'NR>1 {if ($2>max) max=$2} END {printf "%.2f", max}' "${METRICS_DIR}/resource_usage.log")
+        echo "Peak CPU Usage: ${peak_cpu}%"
+        
+        # Calculate average memory usage in MB
+        local avg_mem=$(awk -F, 'NR>1 {sum+=$3; count++} END {printf "%.2f", (sum/count)/1024}' "${METRICS_DIR}/resource_usage.log")
+        echo "Average Memory Usage: ${avg_mem} MB"
+        
+        # Calculate peak memory usage in MB
+        local peak_mem=$(awk -F, 'NR>1 {if ($3>max) max=$3} END {printf "%.2f", max/1024}' "${METRICS_DIR}/resource_usage.log")
+        echo "Peak Memory Usage: ${peak_mem} MB"
+      fi
     } > "${METRICS_DIR}/summary_report.txt"
     
     echo "A summary report has been saved to: ${METRICS_DIR}/summary_report.txt"
@@ -217,6 +571,9 @@ function analyze_metrics() {
 
   echo "----------------------------------------------------"
   echo "Performance impact analysis complete. Detailed logs available in the $METRICS_DIR directory."
+  
+  # Generate visualizations
+  generate_charts
 }
 
 
@@ -248,6 +605,7 @@ check_runners_exist "$N"
 
 # Clean up previous metrics
 rm -rf "${METRICS_DIR}"/*.log
+mkdir -p "${METRICS_DIR}/charts"
 
 # Get test plan name from user
 read -p "Enter the test plan name to execute (must be in this directory): " TEST_PLAN
@@ -262,9 +620,44 @@ echo "[INFO] Then: Runner #1 plus $(( N - 1 )) concurrent runners"
 # Create a file flag to indicate monitoring should continue
 touch "${METRICS_DIR}/.monitoring_active"
 
+# Store the start time for charts
+STARTTIME=$(date +%s)
+export STARTTIME
+
+# Start all monitoring processes in the background
+declare -a MONITOR_PIDS
+
 # Start resource monitoring in the background
 monitor_resources &
-MONITOR_PID=$!
+MONITOR_PIDS+=($!)
+
+# Start detailed CPU monitoring
+monitor_detailed_cpu &
+MONITOR_PIDS+=($!)
+
+# Start per-core CPU monitoring
+monitor_cpu_cores &
+MONITOR_PIDS+=($!)
+
+# Start detailed memory monitoring
+monitor_detailed_memory &
+MONITOR_PIDS+=($!)
+
+# Start per-runner process monitoring
+monitor_runner_processes &
+MONITOR_PIDS+=($!)
+
+# Start network connection monitoring
+monitor_network_connections &
+MONITOR_PIDS+=($!)
+
+# Start filesystem activity monitoring
+monitor_filesystem_activity &
+MONITOR_PIDS+=($!)
+
+# Start TAP response time monitoring
+measure_tap_response_time &
+MONITOR_PIDS+=($!)
 
 # First: Run baseline test with just Runner #1
 echo "----------------------------------------------------"
@@ -337,10 +730,12 @@ done
 rm -f "${METRICS_DIR}/.monitoring_active"
 # Give the monitoring process a moment to detect the flag is gone
 sleep 2
-# Kill the monitoring process if it's still running
-if kill -0 $MONITOR_PID 2>/dev/null; then
-  kill $MONITOR_PID
-fi
+# Kill the monitoring processes if they're still running
+for pid in "${MONITOR_PIDS[@]}"; do
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid"
+  fi
+done
 
 echo "[INFO] Analyzing performance metrics..."
 
