@@ -335,20 +335,17 @@ EOF
   if [[ -f "${METRICS_DIR}/cpu_cores.log" ]] && [[ $(wc -l < "${METRICS_DIR}/cpu_cores.log") -gt 1 ]]; then
     local start_ts=$(head -2 "${METRICS_DIR}/cpu_cores.log" | tail -1 | cut -d',' -f1)
 
-    # Assume start_time is the timestamp of the first reading (you could compute it or set it manually)
-    start_time=$(tail -n +2 cpu_cores.log | head -n1 | cut -d',' -f1)
-
-    # Process the CSV file, skipping the header.
-    tail -n +2 cpu_cores.log | while IFS=, read -r timestamp core0 core1 core2 core3 core4; do
-      # Calculate a relative time (optional; otherwise, use the raw timestamp)
-      rel_time=$(echo "$timestamp - $start_time" | bc)
+    # Convert the CSV cpu_cores.log to a grid format in grid_data.log
+    tail -n +2 "${METRICS_DIR}/cpu_cores.log" | while IFS=, read -r timestamp core0 core1 core2 core3 core4; do
+      # Calculate relative time if desired
+      rel_time=$(echo "$timestamp - $start_ts" | bc)
       echo "$rel_time 0 $core0"
       echo "$rel_time 1 $core1"
       echo "$rel_time 2 $core2"
       echo "$rel_time 3 $core3"
       echo "$rel_time 4 $core4"
-      echo ""  # Blank line to separate blocks
-    done > grid_data.log
+      echo ""  # Blank line to separate blocks (scans)
+    done > "${METRICS_DIR}/grid_data.log"
 
     
     gnuplot <<EOF
