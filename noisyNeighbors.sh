@@ -342,7 +342,11 @@ set title 'CPU Cores Usage Heatmap'
 set xlabel 'Time (seconds from start)'
 set ylabel 'CPU Core'
 set datafile separator ','
-splot 'grid_data.log' using 1:2:3 with pm3d notitle
+plot 'cpu_cores.log' every ::1 using (\$1 - start_time):2 with lines title 'Core 0', \
+     '' every ::1 using (\$1 - start_time):3 with lines title 'Core 1', \
+     '' every ::1 using (\$1 - start_time):4 with lines title 'Core 2', \
+     '' every ::1 using (\$1 - start_time):5 with lines title 'Core 3', \
+     '' every ::1 using (\$1 - start_time):6 with lines title 'Core 4'
 set view map
 set cblabel 'Usage %'
 set palette defined (0 'blue', 50 'green', 75 'yellow', 100 'red')
