@@ -365,53 +365,66 @@ function generate_charts() {
   
   echo "[INFO] Generating performance charts..."
   
-  # CPU usage chart
-  gnuplot <<EOF
+  # Get the first timestamp from the resource_usage.log to use as start time
+  if [[ -f "${METRICS_DIR}/resource_usage.log" ]] && [[ $(wc -l < "${METRICS_DIR}/resource_usage.log") -gt 1 ]]; then
+    local start_ts=$(head -2 "${METRICS_DIR}/resource_usage.log" | tail -1 | cut -d',' -f1)
+    
+    # CPU usage chart
+    gnuplot <<EOF
 set terminal png size 800,600
 set output '$charts_dir/cpu_usage.png'
 set title 'CPU Usage Over Time'
 set xlabel 'Time (seconds from start)'
 set ylabel 'CPU Usage (%)'
 set grid
-plot '$METRICS_DIR/resource_usage.log' using (\$1-STARTTIME):2 with lines title 'CPU Usage' lw 2
+start_time = $start_ts
+plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):2 with lines title 'CPU Usage' lw 2
 EOF
 
-  # Memory usage chart
-  gnuplot <<EOF
+    # Memory usage chart
+    gnuplot <<EOF
 set terminal png size 800,600
 set output '$charts_dir/memory_usage.png'
 set title 'Memory Usage Over Time'
 set xlabel 'Time (seconds from start)'
 set ylabel 'Memory Usage (MB)'
 set grid
-plot '$METRICS_DIR/resource_usage.log' using (\$1-STARTTIME):(\$3/1024) with lines title 'Memory Usage' lw 2
+start_time = $start_ts
+plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):(\$3/1024) with lines title 'Memory Usage' lw 2
 EOF
 
-  # Load average chart
-  gnuplot <<EOF
+    # Load average chart
+    gnuplot <<EOF
 set terminal png size 800,600
 set output '$charts_dir/load_average.png'
 set title 'System Load Average'
 set xlabel 'Time (seconds from start)'
 set ylabel 'Load Average (1 min)'
 set grid
-plot '$METRICS_DIR/resource_usage.log' using (\$1-STARTTIME):8 with lines title 'Load Average' lw 2
+start_time = $start_ts
+plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):8 with lines title 'Load Average' lw 2
 EOF
 
-  # Network traffic chart
-  gnuplot <<EOF
+    # Network traffic chart
+    gnuplot <<EOF
 set terminal png size 800,600
 set output '$charts_dir/network_traffic.png'
 set title 'Network Traffic'
 set xlabel 'Time (seconds from start)'
 set ylabel 'Traffic (KB)'
 set grid
-plot '$METRICS_DIR/resource_usage.log' using (\$1-STARTTIME):(\$5/1024) with lines title 'RX' lw 2, \
-     '$METRICS_DIR/resource_usage.log' using (\$1-STARTTIME):(\$6/1024) with lines title 'TX' lw 2
+start_time = $start_ts
+plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):(\$5/1024) with lines title 'RX' lw 2, \
+     '$METRICS_DIR/resource_usage.log' using (\$1-start_time):(\$6/1024) with lines title 'TX' lw 2
 EOF
+  else
+    echo "[WARNING] Resource usage log file is missing or empty. Skipping related charts."
+  fi
 
   # CPU cores heatmap if the file exists and has data
   if [[ -f "${METRICS_DIR}/cpu_cores.log" ]] && [[ $(wc -l < "${METRICS_DIR}/cpu_cores.log") -gt 1 ]]; then
+    local start_ts=$(head -2 "${METRICS_DIR}/cpu_cores.log" | tail -1 | cut -d',' -f1)
+    
     gnuplot <<EOF
 set terminal png size 1000,600
 set output '$charts_dir/cpu_cores_heatmap.png'
@@ -421,13 +434,16 @@ set ylabel 'CPU Core'
 set view map
 set cblabel 'Usage %'
 set palette defined (0 'blue', 50 'green', 75 'yellow', 100 'red')
+start_time = $start_ts
 NUM_CORES=$(awk -F, '{print NF-1; exit}' "${METRICS_DIR}/cpu_cores.log")
-splot '$METRICS_DIR/cpu_cores.log' using (\$1-STARTTIME):0:2 with pm3d title ''
+splot '$METRICS_DIR/cpu_cores.log' using (\$1-start_time):0:2 with pm3d title ''
 EOF
   fi
 
   # Runner response times
   if [[ -f "${METRICS_DIR}/tap_response_times.log" ]] && [[ $(wc -l < "${METRICS_DIR}/tap_response_times.log") -gt 1 ]]; then
+    local start_ts=$(head -2 "${METRICS_DIR}/tap_response_times.log" | tail -1 | cut -d',' -f1)
+    
     gnuplot <<EOF
 set terminal png size 800,600
 set output '$charts_dir/tap_response_times.png'
@@ -435,7 +451,8 @@ set title 'TAP Command Response Times'
 set xlabel 'Time (seconds from start)'
 set ylabel 'Response Time (ms)'
 set grid
-plot '$METRICS_DIR/tap_response_times.log' using (\$1-STARTTIME):4 with points title 'TAP Response Time' pt 7
+start_time = $start_ts
+plot '$METRICS_DIR/tap_response_times.log' using (\$1-start_time):4 with points title 'TAP Response Time' pt 7
 EOF
   fi
 
@@ -619,10 +636,6 @@ echo "[INFO] Then: Runner #1 plus $(( N - 1 )) concurrent runners"
 
 # Create a file flag to indicate monitoring should continue
 touch "${METRICS_DIR}/.monitoring_active"
-
-# Store the start time for charts
-STARTTIME=$(date +%s)
-export STARTTIME
 
 # Start all monitoring processes in the background
 declare -a MONITOR_PIDS
