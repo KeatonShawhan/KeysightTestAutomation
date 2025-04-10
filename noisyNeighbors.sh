@@ -225,39 +225,6 @@ function monitor_detailed_memory() {
   done
 }
 
-# Function to monitor per-runner process metrics
-function monitor_runner_processes() {
-  local output_file="${METRICS_DIR}/runner_processes.log"
-  
-  echo "timestamp,runner_id,pid,cpu_percent,memory_kb,threads,fds" > "$output_file"
-  
-  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
-    local timestamp=$(date +%s)
-    
-    for i in $(seq 1 "$N"); do
-      # Find the PID of the TAP process for this runner
-      if command -v pgrep &>/dev/null; then
-        local runner_pid=$(pgrep -f "runner_$i.*tap run")
-        
-        if [[ -n "$runner_pid" ]]; then
-          local cpu_usage=$(ps -p "$runner_pid" -o pcpu= | tr -d ' ')
-          local mem_usage=$(ps -p "$runner_pid" -o rss= | tr -d ' ')
-          local thread_count=$(ps -p "$runner_pid" -o nlwp= | tr -d ' ')
-          local fd_count=0
-          
-          if [[ -d "/proc/$runner_pid/fd" ]]; then
-            fd_count=$(ls -1 /proc/"$runner_pid"/fd 2>/dev/null | wc -l)
-          fi
-          
-          echo "$timestamp,$i,$runner_pid,$cpu_usage,$mem_usage,$thread_count,$fd_count" >> "$output_file"
-        fi
-      fi
-    done
-    
-    sleep 1
-  done
-}
-
 # Function to monitor network connections
 function monitor_network_connections() {
   local output_file="${METRICS_DIR}/network_connections.log"
@@ -288,68 +255,6 @@ function monitor_network_connections() {
     fi
     
     sleep 1
-  done
-}
-
-# Function to monitor file system activity
-function monitor_filesystem_activity() {
-  local output_file="${METRICS_DIR}/filesystem_activity.log"
-  local runner_dir="$HOME"
-  
-  echo "timestamp,open_files,disk_reads,disk_writes" > "$output_file"
-  
-  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
-    local timestamp=$(date +%s)
-    local open_files=0
-    local disk_reads=0
-    local disk_writes=0
-    
-    # Count open files if lsof is available
-    if command -v lsof &>/dev/null; then
-      open_files=$(lsof 2>/dev/null | grep -c "$runner_dir")
-    fi
-    
-    # Get disk activity if iostat is available
-    if command -v iostat &>/dev/null; then
-      local disk_stats=$(iostat -d 1 2 | tail -n 2 | head -n 1)
-      disk_reads=$(echo "$disk_stats" | awk '{print $3}')
-      disk_writes=$(echo "$disk_stats" | awk '{print $4}')
-    fi
-    
-    echo "$timestamp,$open_files,$disk_reads,$disk_writes" >> "$output_file"
-    sleep 1
-  done
-}
-
-# Function to measure TAP command response times
-function measure_tap_response_time() {
-  local output_file="${METRICS_DIR}/tap_response_times.log"
-  
-  echo "timestamp,runner_id,command,response_time_ms" > "$output_file"
-  
-  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
-    local timestamp=$(date +%s)
-    
-    # Sample a few runners (randomly select 3, or fewer if N < 3)
-    local sample_size=$((N > 3 ? 3 : N))
-    local sample_runners=$(seq 1 "$N" | shuf | head -n "$sample_size")
-    
-    for i in $sample_runners; do
-      local runner_dir="$HOME/runner_$i"
-      if [[ -d "$runner_dir" ]]; then
-        cd "$runner_dir" || continue
-        
-        # Measure response time for a simple tap command
-        local start_time=$(date +%s.%N)
-        ./tap info &>/dev/null
-        local end_time=$(date +%s.%N)
-        local response_time=$(echo "($end_time - $start_time) * 1000" | bc)
-        
-        echo "$timestamp,$i,info,$response_time" >> "$output_file"
-      fi
-    done
-    
-    sleep 5  # Less frequent check to reduce impact
   done
 }
 
@@ -663,20 +568,8 @@ MONITOR_PIDS+=($!)
 monitor_detailed_memory &
 MONITOR_PIDS+=($!)
 
-# Start per-runner process monitoring
-monitor_runner_processes &
-MONITOR_PIDS+=($!)
-
 # Start network connection monitoring
 monitor_network_connections &
-MONITOR_PIDS+=($!)
-
-# Start filesystem activity monitoring
-monitor_filesystem_activity &
-MONITOR_PIDS+=($!)
-
-# Start TAP response time monitoring
-measure_tap_response_time &
 MONITOR_PIDS+=($!)
 
 # First: Run baseline test with just Runner #1
