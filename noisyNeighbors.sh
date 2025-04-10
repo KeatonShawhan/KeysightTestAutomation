@@ -334,24 +334,34 @@ EOF
   # CPU cores heatmap if the file exists and has data
   if [[ -f "${METRICS_DIR}/cpu_cores.log" ]] && [[ $(wc -l < "${METRICS_DIR}/cpu_cores.log") -gt 1 ]]; then
     local start_ts=$(head -2 "${METRICS_DIR}/cpu_cores.log" | tail -1 | cut -d',' -f1)
+
+    # Assume start_time is the timestamp of the first reading (you could compute it or set it manually)
+    start_time=$(tail -n +2 cpu_cores.log | head -n1 | cut -d',' -f1)
+
+    # Process the CSV file, skipping the header.
+    tail -n +2 cpu_cores.log | while IFS=, read -r timestamp core0 core1 core2 core3 core4; do
+      # Calculate a relative time (optional; otherwise, use the raw timestamp)
+      rel_time=$(echo "$timestamp - $start_time" | bc)
+      echo "$rel_time 0 $core0"
+      echo "$rel_time 1 $core1"
+      echo "$rel_time 2 $core2"
+      echo "$rel_time 3 $core3"
+      echo "$rel_time 4 $core4"
+      echo ""  # Blank line to separate blocks
+    done > grid_data.log
+
     
     gnuplot <<EOF
 set terminal png size 1000,600
-set output '${charts_dir}/cpu_cores_heatmap.png'
+set output 'cpu_cores_heatmap.png'
 set title 'CPU Cores Usage Heatmap'
 set xlabel 'Time (seconds from start)'
 set ylabel 'CPU Core'
-set datafile separator ','
-start_time = $start_ts
-plot '${METRICS_DIR}/cpu_cores.log' every ::1 using (\$1 - start_time):2 with lines title 'Core 0', \
-     '' every ::1 using (\$1 - start_time):3 with lines title 'Core 1', \
-     '' every ::1 using (\$1 - start_time):4 with lines title 'Core 2', \
-     '' every ::1 using (\$1 - start_time):5 with lines title 'Core 3', \
-     '' every ::1 using (\$1 - start_time):6 with lines title 'Core 4'
+set datafile separator ' '   # In our grid file, columns are space separated.
 set view map
 set cblabel 'Usage %'
 set palette defined (0 'blue', 50 'green', 75 'yellow', 100 'red')
-splot '${METRICS_DIR}/cpu_cores.log' using (\$1 - start_time):0:2 with pm3d title ''
+splot 'grid_data.log' using 1:2:3 with pm3d notitle
 EOF
 
   fi
