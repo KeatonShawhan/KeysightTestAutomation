@@ -563,28 +563,11 @@ function analyze_metrics() {
         # Calculate peak memory usage in MB
         local peak_mem=$(awk -F, 'NR>1 {if ($3>max) max=$3} END {printf "%.2f", max/1024}' "${METRICS_DIR}/resource_usage.log")
         echo "Peak Memory Usage: ${peak_mem} MB"
-        
-        # Get disk and network metrics if they exist in the log file
-        if grep -q "disk_io_read" "${METRICS_DIR}/resource_usage.log"; then
-          # Get average disk I/O
-          local avg_disk_read=$(awk -F, 'NR>1 {sum+=$4; count++} END {printf "%.2f", sum/count}' "${METRICS_DIR}/resource_usage.log")
-          local avg_disk_write=$(awk -F, 'NR>1 {sum+=$5; count++} END {printf "%.2f", sum/count}' "${METRICS_DIR}/resource_usage.log")
-          echo "Average Disk Read: ${avg_disk_read} KB/s"
-          echo "Average Disk Write: ${avg_disk_write} KB/s"
-        fi
-  
-  if grep -q "network_rx" "${METRICS_DIR}/resource_usage.log"; then
-    # Get average network traffic
-    local avg_net_rx=$(awk -F, 'NR>1 {sum+=$6; count++} END {printf "%.2f", sum/count/1024}' "${METRICS_DIR}/resource_usage.log")
-    local avg_net_tx=$(awk -F, 'NR>1 {sum+=$7; count++} END {printf "%.2f", sum/count/1024}' "${METRICS_DIR}/resource_usage.log")
-    echo "Average Network RX: ${avg_net_rx} KB/s"
-    echo "Average Network TX: ${avg_net_tx} KB/s"
+      fi
+    } > "${METRICS_DIR}/summary_report.txt"
+    
+    echo "A summary report has been saved to: ${METRICS_DIR}/summary_report.txt"
   fi
-  
-  # Average system load
-  local avg_load=$(awk -F, 'NR>1 {sum+=$8; count++} END {printf "%.2f", sum/count}' "${METRICS_DIR}/resource_usage.log")
-  echo "Average System Load: ${avg_load}"
-fi
 
   echo "----------------------------------------------------"
   echo "Performance impact analysis complete. Detailed logs available in the $METRICS_DIR directory."
@@ -675,34 +658,6 @@ MONITOR_PIDS+=($!)
 # Start TAP response time monitoring
 measure_tap_response_time &
 MONITOR_PIDS+=($!)
-
-echo "[INFO] Collecting system metrics..."
-echo "[INFO] Available metrics: Basic system resources"
-
-# Check for required tools
-if command -v iostat &>/dev/null; then
-  echo "[INFO] Available metrics: Disk I/O statistics"
-else
-  echo "[WARNING] 'iostat' not found. Disk I/O metrics will not be collected."
-fi
-
-if command -v mpstat &>/dev/null; then
-  echo "[INFO] Available metrics: Per-core CPU statistics"
-else
-  echo "[WARNING] 'mpstat' not found. Per-core CPU metrics will not be collected."
-fi
-
-if command -v netstat &>/dev/null || command -v ss &>/dev/null; then
-  echo "[INFO] Available metrics: Network connection statistics"
-else
-  echo "[WARNING] Network tools not found. Network connection metrics will not be collected."
-fi
-
-if command -v lsof &>/dev/null; then
-  echo "[INFO] Available metrics: Open files statistics"
-else
-  echo "[WARNING] 'lsof' not found. Open files metrics will not be collected."
-fi
 
 # First: Run baseline test with just Runner #1
 echo "----------------------------------------------------"
