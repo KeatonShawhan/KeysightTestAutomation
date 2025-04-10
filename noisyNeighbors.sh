@@ -337,12 +337,13 @@ EOF
     
     gnuplot <<EOF
 set terminal png size 1000,600
-set output '$charts_dir/cpu_cores_heatmap.png'
+set output '${charts_dir}/cpu_cores_heatmap.png'
 set title 'CPU Cores Usage Heatmap'
 set xlabel 'Time (seconds from start)'
 set ylabel 'CPU Core'
 set datafile separator ','
-plot 'cpu_cores.log' every ::1 using (\$1 - start_time):2 with lines title 'Core 0', \
+start_time = $start_ts
+plot '${METRICS_DIR}/cpu_cores.log' every ::1 using (\$1 - start_time):2 with lines title 'Core 0', \
      '' every ::1 using (\$1 - start_time):3 with lines title 'Core 1', \
      '' every ::1 using (\$1 - start_time):4 with lines title 'Core 2', \
      '' every ::1 using (\$1 - start_time):5 with lines title 'Core 3', \
@@ -350,10 +351,9 @@ plot 'cpu_cores.log' every ::1 using (\$1 - start_time):2 with lines title 'Core
 set view map
 set cblabel 'Usage %'
 set palette defined (0 'blue', 50 'green', 75 'yellow', 100 'red')
-start_time = $start_ts
-NUM_CORES=$(awk -F, '{print NF-1; exit}' "${METRICS_DIR}/cpu_cores.log")
-splot '$METRICS_DIR/cpu_cores.log' using (\$1-start_time):0:2 with pm3d title ''
+splot '${METRICS_DIR}/cpu_cores.log' using (\$1 - start_time):0:2 with pm3d title ''
 EOF
+
   fi
 
   echo "[INFO] Charts generated in $charts_dir"
