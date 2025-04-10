@@ -358,7 +358,7 @@ set datafile separator ' '   # In our grid file, columns are space separated.
 set view map
 set cblabel 'Usage %'
 set palette defined (0 'blue', 50 'green', 75 'yellow', 100 'red')
-splot 'grid_data.log' using 1:2:3 with pm3d notitle
+splot '${METRICS_DIR}/grid_data.log' using 1:2:3 with pm3d notitle
 EOF
 
   fi
