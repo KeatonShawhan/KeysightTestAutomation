@@ -376,10 +376,12 @@ set output '$charts_dir/cpu_usage.png'
 set title 'CPU Usage Over Time'
 set xlabel 'Time (seconds from start)'
 set ylabel 'CPU Usage (%)'
+set datafile separator ','
 set grid
 start_time = $start_ts
 plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):2 with lines title 'CPU Usage' lw 2
 EOF
+
 
     # Memory usage chart
     gnuplot <<EOF
@@ -388,6 +390,7 @@ set output '$charts_dir/memory_usage.png'
 set title 'Memory Usage Over Time'
 set xlabel 'Time (seconds from start)'
 set ylabel 'Memory Usage (MB)'
+set datafile separator ','
 set grid
 start_time = $start_ts
 plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):(\$3/1024) with lines title 'Memory Usage' lw 2
@@ -400,6 +403,7 @@ set output '$charts_dir/load_average.png'
 set title 'System Load Average'
 set xlabel 'Time (seconds from start)'
 set ylabel 'Load Average (1 min)'
+set datafile separator ','
 set grid
 start_time = $start_ts
 plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):8 with lines title 'Load Average' lw 2
@@ -412,6 +416,7 @@ set output '$charts_dir/network_traffic.png'
 set title 'Network Traffic'
 set xlabel 'Time (seconds from start)'
 set ylabel 'Traffic (KB)'
+set datafile separator ','
 set grid
 start_time = $start_ts
 plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):(\$5/1024) with lines title 'RX' lw 2, \
@@ -431,6 +436,7 @@ set output '$charts_dir/cpu_cores_heatmap.png'
 set title 'CPU Cores Usage Heatmap'
 set xlabel 'Time (seconds from start)'
 set ylabel 'CPU Core'
+set datafile separator ','
 set view map
 set cblabel 'Usage %'
 set palette defined (0 'blue', 50 'green', 75 'yellow', 100 'red')
@@ -450,6 +456,7 @@ set output '$charts_dir/tap_response_times.png'
 set title 'TAP Command Response Times'
 set xlabel 'Time (seconds from start)'
 set ylabel 'Response Time (ms)'
+set datafile separator ','
 set grid
 start_time = $start_ts
 plot '$METRICS_DIR/tap_response_times.log' using (\$1-start_time):4 with points title 'TAP Response Time' pt 7
