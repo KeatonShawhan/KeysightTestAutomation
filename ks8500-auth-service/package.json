@@ -1,0 +1,42 @@
+{
+    "name": "ks8500-auth-service",
+    "version": "1.0.0",
+    "description": "Authentication service for Keysight KS8500 Cypress tests",
+    "main": "index.js",
+    "scripts": {
+      "test": "cypress run --spec cypress/tests/**/*.js",
+      "lint": "eslint src/",
+      "build": "babel src -d lib",
+      "prepublishOnly": "npm run build"
+    },
+    "files": [
+      "index.js",
+      "src/**/*.js",
+      "lib/**/*.js"
+    ],
+    "keywords": [
+      "keysight",
+      "ks8500",
+      "cypress",
+      "authentication",
+      "keycloak"
+    ],
+    "author": "Keysight",
+    "license": "MIT",
+    "dependencies": {},
+    "peerDependencies": {
+      "cypress": ">=10.0.0",
+      "cypress-keycloak": ">=1.0.0"
+    },
+    "devDependencies": {
+      "@babel/cli": "^7.21.0",
+      "@babel/core": "^7.21.4",
+      "@babel/preset-env": "^7.21.4",
+      "cypress": "^12.9.0",
+      "eslint": "^8.38.0",
+      "eslint-plugin-cypress": "^2.13.2"
+    },
+    "engines": {
+      "node": ">=14.0.0"
+    }
+  }
