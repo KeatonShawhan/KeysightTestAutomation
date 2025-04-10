@@ -342,29 +342,13 @@ set title 'CPU Cores Usage Heatmap'
 set xlabel 'Time (seconds from start)'
 set ylabel 'CPU Core'
 set datafile separator ','
+splot 'grid_data.log' using 1:2:3 with pm3d notitle
 set view map
 set cblabel 'Usage %'
 set palette defined (0 'blue', 50 'green', 75 'yellow', 100 'red')
 start_time = $start_ts
 NUM_CORES=$(awk -F, '{print NF-1; exit}' "${METRICS_DIR}/cpu_cores.log")
 splot '$METRICS_DIR/cpu_cores.log' using (\$1-start_time):0:2 with pm3d title ''
-EOF
-  fi
-
-  # Runner response times
-  if [[ -f "${METRICS_DIR}/tap_response_times.log" ]] && [[ $(wc -l < "${METRICS_DIR}/tap_response_times.log") -gt 1 ]]; then
-    local start_ts=$(head -2 "${METRICS_DIR}/tap_response_times.log" | tail -1 | cut -d',' -f1)
-    
-    gnuplot <<EOF
-set terminal png size 800,600
-set output '$charts_dir/tap_response_times.png'
-set title 'TAP Command Response Times'
-set xlabel 'Time (seconds from start)'
-set ylabel 'Response Time (ms)'
-set datafile separator ','
-set grid
-start_time = $start_ts
-plot '$METRICS_DIR/tap_response_times.log' using (\$1-start_time):4 with points title 'TAP Response Time' pt 7
 EOF
   fi
 
