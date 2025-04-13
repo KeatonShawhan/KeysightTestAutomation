@@ -96,41 +96,61 @@ function run_test_plan() {
 # Enhanced function to collect system resource usage during test execution
 function monitor_resources() {
   local output_file="${METRICS_DIR}/resource_usage.log"
+  # Now we output both normalized and total CPU usage.
+  echo "timestamp,norm_cpu_percent,total_cpu_percent,memory_kb,disk_io_read_kb,disk_io_write_kb,network_rx_bytes,network_tx_bytes,load_avg" > "$output_file"
   
-  echo "timestamp,cpu_percent,memory_kb,disk_io_read_kb,disk_io_write_kb,network_rx_bytes,network_tx_bytes,load_avg" > "$output_file"
-  
+  # Determine the number of CPU cores on the system.
+  local num_cores
+  num_cores=$(grep -c '^processor' /proc/cpuinfo)
+
   while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
-    local timestamp=$(date +%s)
-    local cpu_usage=$(ps -e -o pcpu= | awk '{sum+=$1} END {print sum}')
-    local mem_usage=$(ps -e -o rss= | awk '{sum+=$1} END {print sum}')
+    local timestamp
+    timestamp=$(date +%s)
+    # Aggregate the CPU usage (pcpu) from all processes.
+    local total_cpu_usage
+    total_cpu_usage=$(ps -e -o pcpu= | awk '{sum+=$1} END {print sum}')
+    # Normalize the CPU usage by dividing by the number of cores.
+    local norm_cpu_usage
+    norm_cpu_usage=$(echo "scale=2; $total_cpu_usage / $num_cores" | bc)
+    
+    # Sum up memory usage (RSS) across all processes (in kilobytes).
+    local mem_usage
+    mem_usage=$(ps -e -o rss= | awk '{sum+=$1} END {print sum}')
     
     # Disk I/O (read/write in KB/s)
+    local disk_read disk_write
     if command -v iostat &>/dev/null; then
-      local disk_io=$(iostat -d -k 1 2 | tail -n 2 | head -n 1)
-      local disk_read=$(echo "$disk_io" | awk '{print $3}')
-      local disk_write=$(echo "$disk_io" | awk '{print $4}')
+      local disk_io
+      disk_io=$(iostat -d -k 1 2 | tail -n 2 | head -n 1)
+      disk_read=$(echo "$disk_io" | awk '{print $3}')
+      disk_write=$(echo "$disk_io" | awk '{print $4}')
     else
-      local disk_read=0
-      local disk_write=0
+      disk_read=0
+      disk_write=0
     fi
-    
+
     # Network traffic (bytes received/transmitted)
+    local net_rx net_tx
     if [[ -f /proc/net/dev ]]; then
-      local net_stats=$(cat /proc/net/dev | grep -v 'lo:' | grep ':' | awk '{rx+=$2; tx+=$10} END {print rx","tx}')
-      local net_rx=$(echo "$net_stats" | cut -d',' -f1)
-      local net_tx=$(echo "$net_stats" | cut -d',' -f2)
+      local net_stats
+      net_stats=$(cat /proc/net/dev | grep -v 'lo:' | grep ':' | awk '{rx+=$2; tx+=$10} END {print rx","tx}')
+      net_rx=$(echo "$net_stats" | cut -d',' -f1)
+      net_tx=$(echo "$net_stats" | cut -d',' -f2)
     else
-      local net_rx=0
-      local net_tx=0
+      net_rx=0
+      net_tx=0
     fi
+
+    # Load average (1 minute)
+    local load_avg
+    load_avg=$(cut -d ' ' -f1 /proc/loadavg)
     
-    # Load average (1min)
-    local load_avg=$(cut -d ' ' -f1 /proc/loadavg)
-    
-    echo "$timestamp,$cpu_usage,$mem_usage,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" >> "$output_file"
+    # Log the data; note that norm_cpu_usage is normalized to 100% per total capacity.
+    echo "$timestamp,$norm_cpu_usage,$total_cpu_usage,$mem_usage,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" >> "$output_file"
     sleep 1
   done
 }
+
 
 # Function to monitor detailed CPU metrics
 function monitor_detailed_cpu() {
