@@ -96,61 +96,41 @@ function run_test_plan() {
 # Enhanced function to collect system resource usage during test execution
 function monitor_resources() {
   local output_file="${METRICS_DIR}/resource_usage.log"
-  # Now we output both normalized and total CPU usage.
-  echo "timestamp,norm_cpu_percent,total_cpu_percent,memory_kb,disk_io_read_kb,disk_io_write_kb,network_rx_bytes,network_tx_bytes,load_avg" > "$output_file"
   
-  # Determine the number of CPU cores on the system.
-  local num_cores
-  num_cores=$(grep -c '^processor' /proc/cpuinfo)
-
+  echo "timestamp,cpu_percent,memory_kb,disk_io_read_kb,disk_io_write_kb,network_rx_bytes,network_tx_bytes,load_avg" > "$output_file"
+  
   while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
-    local timestamp
-    timestamp=$(date +%s)
-    # Aggregate the CPU usage (pcpu) from all processes.
-    local total_cpu_usage
-    total_cpu_usage=$(ps -e -o pcpu= | awk '{sum+=$1} END {print sum}')
-    # Normalize the CPU usage by dividing by the number of cores.
-    local norm_cpu_usage
-    norm_cpu_usage=$(echo "scale=2; $total_cpu_usage / $num_cores" | bc)
-    
-    # Sum up memory usage (RSS) across all processes (in kilobytes).
-    local mem_usage
-    mem_usage=$(ps -e -o rss= | awk '{sum+=$1} END {print sum}')
+    local timestamp=$(date +%s)
+    local cpu_usage=$(ps -e -o pcpu= | awk '{sum+=$1} END {print sum}')
+    local mem_usage=$(ps -e -o rss= | awk '{sum+=$1} END {print sum}')
     
     # Disk I/O (read/write in KB/s)
-    local disk_read disk_write
     if command -v iostat &>/dev/null; then
-      local disk_io
-      disk_io=$(iostat -d -k 1 2 | tail -n 2 | head -n 1)
-      disk_read=$(echo "$disk_io" | awk '{print $3}')
-      disk_write=$(echo "$disk_io" | awk '{print $4}')
+      local disk_io=$(iostat -d -k 1 2 | tail -n 2 | head -n 1)
+      local disk_read=$(echo "$disk_io" | awk '{print $3}')
+      local disk_write=$(echo "$disk_io" | awk '{print $4}')
     else
-      disk_read=0
-      disk_write=0
+      local disk_read=0
+      local disk_write=0
     fi
-
-    # Network traffic (bytes received/transmitted)
-    local net_rx net_tx
-    if [[ -f /proc/net/dev ]]; then
-      local net_stats
-      net_stats=$(cat /proc/net/dev | grep -v 'lo:' | grep ':' | awk '{rx+=$2; tx+=$10} END {print rx","tx}')
-      net_rx=$(echo "$net_stats" | cut -d',' -f1)
-      net_tx=$(echo "$net_stats" | cut -d',' -f2)
-    else
-      net_rx=0
-      net_tx=0
-    fi
-
-    # Load average (1 minute)
-    local load_avg
-    load_avg=$(cut -d ' ' -f1 /proc/loadavg)
     
-    # Log the data; note that norm_cpu_usage is normalized to 100% per total capacity.
-    echo "$timestamp,$norm_cpu_usage,$total_cpu_usage,$mem_usage,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" >> "$output_file"
+    # Network traffic (bytes received/transmitted)
+    if [[ -f /proc/net/dev ]]; then
+      local net_stats=$(cat /proc/net/dev | grep -v 'lo:' | grep ':' | awk '{rx+=$2; tx+=$10} END {print rx","tx}')
+      local net_rx=$(echo "$net_stats" | cut -d',' -f1)
+      local net_tx=$(echo "$net_stats" | cut -d',' -f2)
+    else
+      local net_rx=0
+      local net_tx=0
+    fi
+    
+    # Load average (1min)
+    local load_avg=$(cut -d ' ' -f1 /proc/loadavg)
+    
+    echo "$timestamp,$cpu_usage,$mem_usage,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" >> "$output_file"
     sleep 1
   done
 }
-
 
 # Function to monitor detailed CPU metrics
 function monitor_detailed_cpu() {
@@ -290,13 +270,11 @@ function generate_charts() {
   
   echo "[INFO] Generating performance charts..."
   
-  # Check resource_usage.log has data
+  # Get the first timestamp from the resource_usage.log to use as start time
   if [[ -f "${METRICS_DIR}/resource_usage.log" ]] && [[ $(wc -l < "${METRICS_DIR}/resource_usage.log") -gt 1 ]]; then
-    # Get the first timestamp from resource_usage.log (second line, after header)
-    local start_ts
-    start_ts=$(head -2 "${METRICS_DIR}/resource_usage.log" | tail -1 | cut -d',' -f1)
+    local start_ts=$(head -2 "${METRICS_DIR}/resource_usage.log" | tail -1 | cut -d',' -f1)
     
-    # CPU usage chart (Normalized CPU usage from column 2)
+    # CPU usage chart
     gnuplot <<EOF
 set terminal png size 800,600
 set output '$charts_dir/cpu_usage.png'
@@ -306,10 +284,11 @@ set ylabel 'CPU Usage (%)'
 set datafile separator ','
 set grid
 start_time = $start_ts
-plot '$METRICS_DIR/resource_usage.log' using (\$1 - start_time):2 with lines title 'CPU Usage' lw 2
+plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):2 with lines title 'CPU Usage' lw 2
 EOF
 
-    # Memory usage chart (Memory in column 4 in KB, divided by 1024 to get MB)
+
+    # Memory usage chart
     gnuplot <<EOF
 set terminal png size 800,600
 set output '$charts_dir/memory_usage.png'
@@ -319,10 +298,10 @@ set ylabel 'Memory Usage (MB)'
 set datafile separator ','
 set grid
 start_time = $start_ts
-plot '$METRICS_DIR/resource_usage.log' using (\$1 - start_time):(\$4/1024) with lines title 'Memory Usage' lw 2
+plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):(\$3/1024) with lines title 'Memory Usage' lw 2
 EOF
 
-    # Load average chart (from column 9)
+    # Load average chart
     gnuplot <<EOF
 set terminal png size 800,600
 set output '$charts_dir/load_average.png'
@@ -332,10 +311,10 @@ set ylabel 'Load Average (1 min)'
 set datafile separator ','
 set grid
 start_time = $start_ts
-plot '$METRICS_DIR/resource_usage.log' using (\$1 - start_time):9 with lines title 'Load Average' lw 2
+plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):8 with lines title 'Load Average' lw 2
 EOF
 
-    # Network traffic chart (RX and TX in columns 7 and 8; divided by 1024 to convert bytes to KB)
+    # Network traffic chart
     gnuplot <<EOF
 set terminal png size 800,600
 set output '$charts_dir/network_traffic.png'
@@ -345,38 +324,37 @@ set ylabel 'Traffic (KB)'
 set datafile separator ','
 set grid
 start_time = $start_ts
-plot '$METRICS_DIR/resource_usage.log' using (\$1 - start_time):(\$7/1024) with lines title 'RX' lw 2, \
-     '$METRICS_DIR/resource_usage.log' using (\$1 - start_time):(\$8/1024) with lines title 'TX' lw 2
+plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):(\$5/1024) with lines title 'RX' lw 2, \
+     '$METRICS_DIR/resource_usage.log' using (\$1-start_time):(\$6/1024) with lines title 'TX' lw 2
 EOF
   else
     echo "[WARNING] Resource usage log file is missing or empty. Skipping related charts."
   fi
-  
-  # CPU cores heatmap (if cpu_cores.log has data)
+
+  # CPU cores heatmap if the file exists and has data
   if [[ -f "${METRICS_DIR}/cpu_cores.log" ]] && [[ $(wc -l < "${METRICS_DIR}/cpu_cores.log") -gt 1 ]]; then
-    # Use first timestamp from cpu_cores.log as reference.
-    local start_ts
-    start_ts=$(head -2 "${METRICS_DIR}/cpu_cores.log" | tail -1 | cut -d',' -f1)
-    
-    # Convert the CSV cpu_cores.log file to grid format (grid_data.log)
+    local start_ts=$(head -2 "${METRICS_DIR}/cpu_cores.log" | tail -1 | cut -d',' -f1)
+
+    # Convert the CSV cpu_cores.log to a grid format in grid_data.log
     tail -n +2 "${METRICS_DIR}/cpu_cores.log" | while IFS=, read -r timestamp core0 core1 core2 core3 core4; do
-      # Calculate relative time
+      # Calculate relative time if desired
       rel_time=$(echo "$timestamp - $start_ts" | bc)
       echo "$rel_time 0 $core0"
       echo "$rel_time 1 $core1"
       echo "$rel_time 2 $core2"
       echo "$rel_time 3 $core3"
       echo "$rel_time 4 $core4"
-      echo ""  # Blank line to separate scans
+      echo ""  # Blank line to separate blocks (scans)
     done > "${METRICS_DIR}/grid_data.log"
+
     
     gnuplot <<EOF
 set terminal png size 1000,600
-set output '$charts_dir/cpu_cores_heatmap.png'
+set output 'cpu_cores_heatmap.png'
 set title 'CPU Cores Usage Heatmap'
 set xlabel 'Time (seconds from start)'
 set ylabel 'CPU Core'
-set datafile separator ' '   # grid_data.log is space separated
+set datafile separator ' '   # In our grid file, columns are space separated.
 set view map
 set cblabel 'Usage %'
 set palette defined (0 'blue', 50 'green', 75 'yellow', 100 'red')
@@ -384,10 +362,9 @@ splot '${METRICS_DIR}/grid_data.log' using 1:2:3 with pm3d notitle
 EOF
 
   fi
-  
+
   echo "[INFO] Charts generated in $charts_dir"
 }
-
 
 # Function to analyze and display performance metrics
 function analyze_metrics() {
