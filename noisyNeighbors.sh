@@ -100,33 +100,48 @@ function monitor_resources() {
   echo "timestamp,cpu_percent,memory_kb,disk_io_read_kb,disk_io_write_kb,network_rx_bytes,network_tx_bytes,load_avg" > "$output_file"
   
   while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
-    local timestamp=$(date +%s)
-    local cpu_usage=$(ps -e -o pcpu= | awk '{sum+=$1} END {print sum}')
-    local mem_usage=$(ps -e -o rss= | awk '{sum+=$1} END {print sum}')
+    local timestamp
+    timestamp=$(date +%s)
     
-    # Disk I/O (read/write in KB/s)
+    # Instead of summing, take the maximum of each field (instantaneous snapshot)
+    local cpu_usage
+    cpu_usage=$(ps -e -o pcpu= | awk 'BEGIN {max=0} {if($1>max) max=$1} END {print max}')
+    
+    local mem_usage
+    mem_usage=$(ps -e -o rss= | awk 'BEGIN {max=0} {if($1>max) max=$1} END {print max}')
+    
+    # For Disk I/O, if you want to take a snapshot instead of a sum, you might want to use a similar approach.
+    # But often for I/O it makes sense to sum or use a tool that already provides instantaneous rates.
     if command -v iostat &>/dev/null; then
-      local disk_io=$(iostat -d -k 1 2 | tail -n 2 | head -n 1)
-      local disk_read=$(echo "$disk_io" | awk '{print $3}')
-      local disk_write=$(echo "$disk_io" | awk '{print $4}')
+      # This command already outputs the snapshot for the given interval.
+      local disk_io
+      disk_io=$(iostat -d -k 1 2 | tail -n 2 | head -n 1)
+      local disk_read
+      disk_read=$(echo "$disk_io" | awk '{print $3}')
+      local disk_write
+      disk_write=$(echo "$disk_io" | awk '{print $4}')
     else
       local disk_read=0
       local disk_write=0
     fi
-    
-    # Network traffic (bytes received/transmitted)
+
+    # For network traffic, you might want to keep the sum since these counters are cumulative.
     if [[ -f /proc/net/dev ]]; then
-      local net_stats=$(cat /proc/net/dev | grep -v 'lo:' | grep ':' | awk '{rx+=$2; tx+=$10} END {print rx","tx}')
-      local net_rx=$(echo "$net_stats" | cut -d',' -f1)
-      local net_tx=$(echo "$net_stats" | cut -d',' -f2)
+      local net_stats
+      net_stats=$(cat /proc/net/dev | grep -v 'lo:' | grep ':' | awk '{rx+=$2; tx+=$10} END {print rx","tx}')
+      local net_rx
+      net_rx=$(echo "$net_stats" | cut -d',' -f1)
+      local net_tx
+      net_tx=$(echo "$net_stats" | cut -d',' -f2)
     else
       local net_rx=0
       local net_tx=0
     fi
     
-    # Load average (1min)
-    local load_avg=$(cut -d ' ' -f1 /proc/loadavg)
+    local load_avg
+    load_avg=$(cut -d ' ' -f1 /proc/loadavg)
     
+    # Write out the snapshot for this interval
     echo "$timestamp,$cpu_usage,$mem_usage,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" >> "$output_file"
     sleep 1
   done
