@@ -107,8 +107,7 @@ function monitor_resources() {
     local cpu_usage
     cpu_usage=$(ps -e -o pcpu= | awk 'BEGIN {max=0} {if($1>max) max=$1} END {print max}')
     
-    local mem_usage
-    mem_usage=$(ps -e -o rss= | awk 'BEGIN {max=0} {if($1>max) max=$1} END {print max}')
+    unique_mem_usage=$(awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {print total - avail}' /proc/meminfo)
     
     # For Disk I/O, if you want to take a snapshot instead of a sum, you might want to use a similar approach.
     # But often for I/O it makes sense to sum or use a tool that already provides instantaneous rates.
@@ -142,7 +141,7 @@ function monitor_resources() {
     load_avg=$(cut -d ' ' -f1 /proc/loadavg)
     
     # Write out the snapshot for this interval
-    echo "$timestamp,$cpu_usage,$mem_usage,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" >> "$output_file"
+    echo "$timestamp,$cpu_usage,$unique_mem_usage,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" >> "$output_file"
     sleep 1
   done
 }
