@@ -241,3 +241,227 @@ function analyze_metrics() {
   # Generate visualizations
   generate_charts
 }
+
+
+# Enhanced function to collect system resource usage during test execution
+function monitor_resources() {
+  local output_file="${METRICS_DIR}/resource_usage.log"
+  
+  echo "timestamp,cpu_percent,memory_kb,disk_io_read_kb,disk_io_write_kb,network_rx_bytes,network_tx_bytes,load_avg" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp
+    timestamp=$(date +%s)
+    
+    # Instead of summing, take the maximum of each field (instantaneous snapshot)
+    local cpu_usage
+    cpu_usage=$(ps -e -o pcpu= | awk 'BEGIN {max=0} {if($1>max) max=$1} END {print max}')
+    
+    unique_mem_usage=$(awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {print total - avail}' /proc/meminfo)
+    
+    # For Disk I/O, if you want to take a snapshot instead of a sum, you might want to use a similar approach.
+    # But often for I/O it makes sense to sum or use a tool that already provides instantaneous rates.
+    if command -v iostat &>/dev/null; then
+      # This command already outputs the snapshot for the given interval.
+      local disk_io
+      disk_io=$(iostat -d -k 1 2 | tail -n 2 | head -n 1)
+      local disk_read
+      disk_read=$(echo "$disk_io" | awk '{print $3}')
+      local disk_write
+      disk_write=$(echo "$disk_io" | awk '{print $4}')
+    else
+      local disk_read=0
+      local disk_write=0
+    fi
+
+    # For network traffic, you might want to keep the sum since these counters are cumulative.
+    if [[ -f /proc/net/dev ]]; then
+      local net_stats
+      net_stats=$(cat /proc/net/dev | grep -v 'lo:' | grep ':' | awk '{rx+=$2; tx+=$10} END {print rx","tx}')
+      local net_rx
+      net_rx=$(echo "$net_stats" | cut -d',' -f1)
+      local net_tx
+      net_tx=$(echo "$net_stats" | cut -d',' -f2)
+    else
+      local net_rx=0
+      local net_tx=0
+    fi
+    
+    local load_avg
+    load_avg=$(cut -d ' ' -f1 /proc/loadavg)
+    
+    # Write out the snapshot for this interval
+    echo "$timestamp,$cpu_usage,$unique_mem_usage,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" >> "$output_file"
+    sleep 1
+  done
+}
+
+# Function to monitor detailed CPU metrics
+function monitor_detailed_cpu() {
+  local output_file="${METRICS_DIR}/cpu_detailed.log"
+  
+  echo "timestamp,user,nice,system,idle,iowait,irq,softirq,steal,guest" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp=$(date +%s)
+    if [[ -f /proc/stat ]]; then
+      local cpu_stats=$(grep '^cpu ' /proc/stat | awk '{print $2","$3","$4","$5","$6","$7","$8","$9","$10}')
+      echo "$timestamp,$cpu_stats" >> "$output_file"
+    fi
+    sleep 1
+  done
+}
+
+# Function to monitor CPU usage per core
+function monitor_cpu_cores() {
+  local output_file="${METRICS_DIR}/cpu_cores.log"
+  local num_cores=$(grep -c ^processor /proc/cpuinfo)
+  
+  # Create header with core numbers
+  local header="timestamp"
+  for i in $(seq 0 $((num_cores-1))); do
+    header="$header,core$i"
+  done
+  
+  echo "$header" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp=$(date +%s)
+    local line="$timestamp"
+    
+    # Get per-core CPU usage with mpstat if available
+    if command -v mpstat &>/dev/null; then
+      local cores_data=$(mpstat -P ALL 1 1 | grep -E "^[0-9]+" | awk '{print 100-$NF}')
+      
+      # Skip the first line which is the average
+      local core_values=$(echo "$cores_data" | tail -n +2)
+      
+      # Append each core's usage to the line
+      while read -r usage; do
+        line="$line,$usage"
+      done <<< "$core_values"
+    else
+      # Fall back to /proc/stat if mpstat is not available
+      for i in $(seq 0 $((num_cores-1))); do
+        if [[ -f /proc/stat ]]; then
+          local core_info=$(grep "^cpu$i " /proc/stat)
+          local user=$(echo "$core_info" | awk '{print $2}')
+          local nice=$(echo "$core_info" | awk '{print $3}')
+          local system=$(echo "$core_info" | awk '{print $4}')
+          local idle=$(echo "$core_info" | awk '{print $5}')
+          local total=$((user + nice + system + idle))
+          local usage=$(echo "scale=2; 100 - ($idle * 100 / $total)" | bc)
+          line="$line,$usage"
+        else
+          line="$line,0"
+        fi
+      done
+    fi
+    
+    echo "$line" >> "$output_file"
+    sleep 1
+  done
+}
+
+# Function to monitor detailed memory statistics
+function monitor_detailed_memory() {
+  local output_file="${METRICS_DIR}/memory_detailed.log"
+  
+  echo "timestamp,total_kb,free_kb,used_kb,buffers_kb,cached_kb,available_kb,swap_total_kb,swap_free_kb" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp=$(date +%s)
+    
+    if [[ -f /proc/meminfo ]]; then
+      # Extract memory statistics
+      local mem_total=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+      local mem_free=$(grep MemFree /proc/meminfo | awk '{print $2}')
+      local mem_buffers=$(grep Buffers /proc/meminfo | awk '{print $2}')
+      local mem_cached=$(grep "^Cached:" /proc/meminfo | awk '{print $2}')
+      local mem_available=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+      local swap_total=$(grep SwapTotal /proc/meminfo | awk '{print $2}')
+      local swap_free=$(grep SwapFree /proc/meminfo | awk '{print $2}')
+      local mem_used=$((mem_total - mem_free - mem_buffers - mem_cached))
+      
+      echo "$timestamp,$mem_total,$mem_free,$mem_used,$mem_buffers,$mem_cached,$mem_available,$swap_total,$swap_free" >> "$output_file"
+    fi
+    sleep 1
+  done
+}
+
+# Function to monitor network connections
+function monitor_network_connections() {
+  local output_file="${METRICS_DIR}/network_connections.log"
+  
+  echo "timestamp,total_connections,established,time_wait,close_wait" > "$output_file"
+  
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
+    local timestamp=$(date +%s)
+    
+    if command -v netstat &>/dev/null; then
+      # Get connection counts by state
+      local netstat_output=$(netstat -an)
+      local total=$(echo "$netstat_output" | wc -l)
+      local established=$(echo "$netstat_output" | grep ESTABLISHED | wc -l)
+      local time_wait=$(echo "$netstat_output" | grep TIME_WAIT | wc -l)
+      local close_wait=$(echo "$netstat_output" | grep CLOSE_WAIT | wc -l)
+      
+      echo "$timestamp,$total,$established,$time_wait,$close_wait" >> "$output_file"
+    elif command -v ss &>/dev/null; then
+      # Alternative using ss command
+      local ss_output=$(ss -tan)
+      local total=$(echo "$ss_output" | wc -l)
+      local established=$(echo "$ss_output" | grep ESTAB | wc -l)
+      local time_wait=$(echo "$ss_output" | grep TIME-WAIT | wc -l)
+      local close_wait=$(echo "$ss_output" | grep CLOSE-WAIT | wc -l)
+      
+      echo "$timestamp,$total,$established,$time_wait,$close_wait" >> "$output_file"
+    fi
+    
+    sleep 1
+  done
+}
+
+function kill_metrics(){
+  # Stop resource monitoring by removing the flag file
+  rm -f "${METRICS_DIR}/.monitoring_active"
+  # Give the monitoring process a moment to detect the flag is gone
+  sleep 2
+  # Kill the monitoring processes if they're still running
+  for pid in "${MONITOR_PIDS[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      kill "$pid"
+    fi
+}
+
+function start_metrics(){
+  # Clean up previous metrics
+  rm -rf "${METRICS_DIR}"/*.log
+  mkdir -p "${METRICS_DIR}/charts"
+
+  # Create a file flag to indicate monitoring should continue
+  touch "${METRICS_DIR}/.monitoring_active"
+
+  # Start all monitoring processes in the background
+  declare -a MONITOR_PIDS
+
+  # Start resource monitoring in the background
+  monitor_resources &
+  MONITOR_PIDS+=($!)
+
+  # Start detailed CPU monitoring
+  monitor_detailed_cpu &
+  MONITOR_PIDS+=($!)
+
+  # Start per-core CPU monitoring
+  monitor_cpu_cores &
+  MONITOR_PIDS+=($!)
+
+  # Start detailed memory monitoring
+  monitor_detailed_memory &
+  MONITOR_PIDS+=($!)
+
+  # Start network connection monitoring
+  monitor_network_connections &
+  MONITOR_PIDS+=($!)
+}
