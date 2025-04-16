@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-source "$(pwd)/metric_tools.sh"
-
 set -e
+
+# resolve script directory, then load our metric helpers
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+source "${SCRIPT_DIR}/metric_tools.sh"
+
+# now set up where logs will go
+METRICS_DIR="${SCRIPT_DIR}/metrics"
+mkdir -p "$METRICS_DIR"
 
 # --- CONFIGURATION ---
 STARTING_PORT=20110
@@ -10,8 +16,6 @@ TAP_URL="https://test-automation.pw.keysight.com"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 METRICS_DIR="${SCRIPT_DIR}/metrics"
 
-# Create metrics directory if it doesn't exist
-mkdir -p "$METRICS_DIR"
 
 # Function to check if runners directories exist
 function check_runners_exist() {
@@ -202,8 +206,7 @@ while ! $COMPLETED; do
   fi
 done
 
-  kill_metrics
-done
+kill_metrics
 
 echo "[INFO] Analyzing performance metrics..."
 
