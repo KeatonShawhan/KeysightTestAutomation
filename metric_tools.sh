@@ -432,6 +432,7 @@ function kill_metrics(){
     if kill -0 "$pid" 2>/dev/null; then
       kill "$pid"
     fi
+  done
 }
 
 function start_metrics(){
