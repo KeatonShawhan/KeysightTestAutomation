@@ -16,9 +16,11 @@
 #   (5 runners, 120s simulation time, test plan MyPlan.TapPlan, provided registration token)
 #
 # Requirements:
-#   - runnerScript.sh and metric_tools.sh in the same directory
-#   - .NET runtime, expect, ss, unzip, curl, iostat, mpstat
+#   - runnerScript.sh in the same directory
+#   - .NET runtime, expect, ss, unzip, curl
+#   - The specified test plan must be a valid .TapFile
 #
+
 #############################################
 #             CONFIG & GLOBALS             #
 #############################################
@@ -26,12 +28,8 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
 
-# Base metrics directory; per-run logs will go under here
 METRICS_DIR="${SCRIPT_DIR}/metrics"
 mkdir -p "${METRICS_DIR}"
-
-# Source metric collection and graphing utilities
-source "${SCRIPT_DIR}/metric_tools.sh"
 
 #############################################
 #        UTILITY & HELPER FUNCTIONS        #
@@ -69,6 +67,7 @@ check_dependencies() {
 }
 
 # Run a test plan (.TapFile) for a single "run" event on a specific runner.
+# Produces output and metrics logs in the current session folder.
 run_test_plan() {
   local runner_id="$1"
   local run_index="$2"
@@ -88,16 +87,18 @@ run_test_plan() {
   start_ts=$(date +%s.%N)
 
   cd "$runner_folder" || return 1
+
   echo "[INFO] Runner #$runner_id (run #$run_index) starting test plan: $test_plan_path"
   if ! ./tap run "$test_plan_path" &> "$output_file"; then
     echo "[ERROR] Runner #$runner_id encountered an error running $test_plan_path (run #$run_index)"
   fi
-  end_ts=$(date +%s.%N)
 
+  end_ts=$(date +%s.%N)
   local duration
   duration=$(awk -v start="$start_ts" -v end="$end_ts" 'BEGIN {printf "%.3f", (end - start)}')
 
   echo "runner_id=$runner_id,run_index=$run_index,start=$start_ts,end=$end_ts,runtime=$duration" > "$metrics_file"
+
   cd "$SCRIPT_DIR" || true
   echo "[INFO] Runner #$runner_id (run #$run_index) completed in ${duration}s"
 }
@@ -109,21 +110,38 @@ runner_loop() {
   local deadline="$2"        # epoch seconds at which we stop scheduling new runs
   local test_plan_path="$3"  # absolute or script-relative
   local session_folder="$4"
+
   local run_count=1
 
   while true; do
-    local now=$(date +%s)
-    (( now >= deadline )) && break
-
-    # random sleep 5-30s
-    local sleep_sec=$(( (RANDOM % 26) + 5 ))
-    (( now + sleep_sec >= deadline )) && break
-
-    sleep "$sleep_sec"
+    local now
     now=$(date +%s)
-    (( now >= deadline )) && break
 
+    # Check if we have already reached or passed the deadline
+    if (( now >= deadline )); then
+      break
+    fi
+
+    # Generate a random sleep between 5 and 30 seconds
+    local sleep_sec=$(( (RANDOM % 26) + 5 ))  # [5..30]
+
+    # If adding this sleep would cross the deadline, we won't start a new run
+    if (( (now + sleep_sec) >= deadline )); then
+      break
+    fi
+
+    # Sleep the random interval
+    sleep "$sleep_sec"
+
+    # Check again after sleeping
+    now=$(date +%s)
+    if (( now >= deadline )); then
+      break
+    fi
+
+    # Time is valid, let's do another run
     run_test_plan "$runner_id" "$run_count" "$test_plan_path" "$session_folder"
+
     (( run_count++ ))
   done
 
@@ -184,67 +202,51 @@ fi
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 SESSION_FOLDER="${METRICS_DIR}/${RUN_TIMESTAMP}"
 mkdir -p "$SESSION_FOLDER"
+
 echo "----------------------------------------------------"
-echo "[INFO] Metrics/logs will be in: $SESSION_FOLDER"
+echo "[INFO] This run's metrics/logs will be in: $SESSION_FOLDER"
 
-# Override METRICS_DIR for metric_tools to write into this session
-METRICS_DIR="$SESSION_FOLDER"
-mkdir -p "${METRICS_DIR}/charts"
-
-# 5) Clean slate: stop any existing runners
-echo "[INFO] Stopping existing runners..."
+# 5) Stop all runners (clean slate)
+echo "[INFO] Stopping any existing runners first..."
 stop_all_runners
 
-# 6) Spin up runners
+# 6) Spin up the requested number of runners
 echo "[INFO] Spinning up $NUM_RUNNERS runner(s)..."
-[[ -f "$RUNNER_SCRIPT" ]] && "$RUNNER_SCRIPT" start "$NUM_RUNNERS" "$REG_TOKEN" \
-  || { echo "[ERROR] runnerScript.sh not found."; exit 1; }
+if [[ -f "$RUNNER_SCRIPT" ]]; then
+  "$RUNNER_SCRIPT" start "$NUM_RUNNERS" "$REG_TOKEN"
+else
+  echo "[ERROR] runnerScript.sh not found at '$RUNNER_SCRIPT'"
+  exit 1
+fi
 
-# 7) Start simulation and monitoring
+# 7) Start the simulation
 echo "----------------------------------------------------"
-echo "[INFO] Beginning simulation: $NUM_RUNNERS runners for $SIM_TIME seconds."
+echo "[INFO] Beginning simulation with $NUM_RUNNERS runners for $SIM_TIME seconds."
 SIM_START=$(date +%s)
-DEADLINE=$((SIM_START + SIM_TIME))
+DEADLINE=$(( SIM_START + SIM_TIME ))
 
-# Launch resource monitoring in background
-touch "${METRICS_DIR}/.monitoring_active"
-declare -a MONITOR_PIDS=()
-monitor_resources        & MONITOR_PIDS+=("$!")
-monitor_detailed_cpu     & MONITOR_PIDS+=("$!")
-monitor_cpu_cores        & MONITOR_PIDS+=("$!")
-monitor_detailed_memory  & MONITOR_PIDS+=("$!")
-monitor_network_connections & MONITOR_PIDS+=("$!")
-
-# Spawn each runner loop
+# Spawn a background job for each runner
 declare -a RUNNER_PIDS=()
 for runner_id in $(seq 1 "$NUM_RUNNERS"); do
-  ( runner_loop "$runner_id" "$DEADLINE" "$ABS_TEST_PLAN" "$SESSION_FOLDER" ) &
-  RUNNER_PIDS+=("$!")
+  (
+    runner_loop "$runner_id" "$DEADLINE" "$ABS_TEST_PLAN" "$SESSION_FOLDER"
+  ) &
+  RUNNER_PIDS+=($!)
 done
 
-echo "[INFO] All runners started. Waiting for completion..."
-for pid in "${RUNNER_PIDS[@]}"; do wait "$pid"; done
+# Wait for all runners to complete their loop
+echo "[INFO] All runners started their loops. Waiting for them to finish..."
+for pid in "${RUNNER_PIDS[@]}"; do
+  wait "$pid"
+done
 
-echo "[INFO] Runner loops complete."
+echo "[INFO] All runner loops have completed. This means no new test plans will be started."
 
-# 8) Tear down runners
+# 8) Stop all runners (they might be idle at this point)
 echo "----------------------------------------------------"
-echo "[INFO] Simulation ended. Stopping runners."
+echo "[INFO] Simulation time ended and all test-plan loops are done. Stopping all runners."
 stop_all_runners
 
-# 9) Stop monitoring
-rm -f "${METRICS_DIR}/.monitoring_active"
-sleep 2
-for pid in "${MONITOR_PIDS[@]}"; do
-  kill "$pid" &>/dev/null || true
-done
-
-# 10) Analyze and graph metrics
-echo "[INFO] Analyzing and graphing performance metrics..."
-analyze_metrics
-
-# 11) Finish
-
 echo "----------------------------------------------------"
-echo "[INFO] Done. Results in: $SESSION_FOLDER"
+echo "[INFO] Done. Metrics and outputs are in: $SESSION_FOLDER"
 echo "[INFO] End of script."
