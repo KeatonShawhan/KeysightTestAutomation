@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source "$(pwd)/metrics_tools.sh"
+source "$(pwd)/metric_tools.sh"
 
 set -e
 
