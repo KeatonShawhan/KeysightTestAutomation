@@ -10,6 +10,11 @@ TAP_URL="https://test-automation.pw.keysight.com"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 METRICS_DIR="${SCRIPT_DIR}/metrics"
 
+# quick debugging
+echo "Sourcing metrics_tools.sh..."
+source ./metrics_tools.sh
+echo "metrics_tools.sh sourced successfully"
+
 # Create metrics directory if it doesn't exist
 mkdir -p "$METRICS_DIR"
 
