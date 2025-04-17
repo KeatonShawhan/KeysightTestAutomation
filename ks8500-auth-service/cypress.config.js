@@ -14,8 +14,9 @@ module.exports = defineConfig({
     baseUrl: 'https://test-automation.pw.keysight.com',
     specPattern: 'cypress/tests/**/*.spec.js',
     supportFile: 'cypress/support/e2e.js',
+    experimentalOriginDependencies: true, // Moved inside e2e object
     setupNodeEvents(on, config) {
-      // Load environment-specific credentials (e.g., dev.json)
+      // Load environment-specific credentials
       const environment = config.env.environment || 'sample';
       const credentialsFile = path.resolve(__dirname, `cypress/credentials/${environment}.json`);
 
@@ -44,8 +45,8 @@ module.exports = defineConfig({
         // Set fallback values for testing without real credentials
         config.env = {
           ...config.env,
-          USERNAME: 'test-user@example.com',
-          PASSWORD: 'test-password',
+          USERNAME: 'nvitagli@ucsc.edu',
+          PASSWORD: 'NicosKeysight.1',
           'client-ID': 'clt-test-automation-ui',
           realm: 'csspp2025',
           authUrl: 'https://keycloak.pw.keysight.com',
@@ -61,6 +62,25 @@ module.exports = defineConfig({
         
         console.log('Using fallback credentials for testing');
       }
+
+      // Add task for writing files (to save auth token if needed)
+      on('task', {
+        writeFile({ path, contents }) {
+          // Make sure directory exists
+          const dirPath = path.substring(0, path.lastIndexOf('/'));
+          if (!fs.existsSync(dirPath)) {
+            fs.mkdirSync(dirPath, { recursive: true });
+          }
+          
+          // Write the file
+          fs.writeFileSync(path, contents);
+          return null;
+        },
+        log(message) {
+          console.log(message);
+          return null;
+        }
+      });
 
       return config;
     },
