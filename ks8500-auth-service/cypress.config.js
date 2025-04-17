@@ -45,8 +45,8 @@ module.exports = defineConfig({
         // Set fallback values for testing without real credentials
         config.env = {
           ...config.env,
-          USERNAME: 'nvitagli@ucsc.edu',
-          PASSWORD: 'NicosKeysight.1',
+          USERNAME: 'test-user@gmail.com',
+          PASSWORD: 'testpass123',
           'client-ID': 'clt-test-automation-ui',
           realm: 'csspp2025',
           authUrl: 'https://keycloak.pw.keysight.com',
