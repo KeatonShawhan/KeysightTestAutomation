@@ -97,7 +97,7 @@ simulate_logins() {
     # Run Cypress in the background
     (
       echo "[INFO] Starting login simulation #$i"
-      cd "$PROJECT_ROOT" && npx cypress run --spec cypress/tests/auth.spec.js --env environment=production,login_email=nvitagli@ucsc.edu,login_username=nvitagli@ucsc.edu,login_password=NicosKeysight.1 > "$log_file" 2>&1
+      cd "$PROJECT_ROOT" && npx cypress run --spec cypress/tests/auth.spec.js --env environment=production,login_email=test-email@gmail.com,login_username=test-email@gmail.com,login_password=testpass123 > "$log_file" 2>&1
       echo "[INFO] Login simulation #$i completed"
     ) &
     pids+=($!)
