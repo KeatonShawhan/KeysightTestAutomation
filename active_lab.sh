@@ -66,8 +66,18 @@ check_dependencies() {
   fi
 }
 
+# Initialize metrics for a runner
+initialize_runner_metrics() {
+  local runner_id="$1"
+  local session_folder="$2"
+  local metrics_file="${session_folder}/runner_${runner_id}_metrics.log"
+  
+  # Initialize the metrics file with header
+  echo "runner_id=$runner_id,runs=0,total_runtime=0.000,avg_runtime=0.000" > "$metrics_file"
+}
+
 # Run a test plan (.TapFile) for a single "run" event on a specific runner.
-# Produces output and metrics logs in the current session folder.
+# Updates the metrics file with cumulative information
 run_test_plan() {
   local runner_id="$1"
   local run_index="$2"
@@ -76,7 +86,7 @@ run_test_plan() {
 
   local runner_folder="$HOME/runner_${runner_id}"
   local output_file="${session_folder}/runner_${runner_id}_run_${run_index}_output.log"
-  local metrics_file="${session_folder}/runner_${runner_id}_run_${run_index}_metrics.log"
+  local metrics_file="${session_folder}/runner_${runner_id}_metrics.log"
 
   if [[ ! -d "$runner_folder" ]]; then
     echo "[ERROR] Runner directory not found: $runner_folder"
@@ -94,13 +104,32 @@ run_test_plan() {
   fi
 
   end_ts=$(date +%s.%N)
-  local duration
-  duration=$(awk -v start="$start_ts" -v end="$end_ts" 'BEGIN {printf "%.3f", (end - start)}')
+  local runtime
+  runtime=$(awk -v start="$start_ts" -v end="$end_ts" 'BEGIN {printf "%.3f", (end - start)}')
 
-  echo "runner_id=$runner_id,run_index=$run_index,start=$start_ts,end=$end_ts,runtime=$duration" > "$metrics_file"
+  # Update cumulative metrics - read existing metrics first
+  local current_runs current_total_runtime current_avg_runtime
+  if [[ -f "$metrics_file" ]]; then
+    current_runs=$(grep -oP 'runs=\K[0-9]+' "$metrics_file" || echo "0")
+    current_total_runtime=$(grep -oP 'total_runtime=\K[0-9.]+' "$metrics_file" || echo "0.000")
+  else
+    current_runs=0
+    current_total_runtime=0.000
+  fi
+  
+  # Calculate new metrics
+  local new_runs=$(( current_runs + 1 ))
+  local new_total_runtime=$(awk -v current="$current_total_runtime" -v runtime="$runtime" 'BEGIN {printf "%.3f", (current + runtime)}')
+  local new_avg_runtime=$(awk -v total="$new_total_runtime" -v runs="$new_runs" 'BEGIN {printf "%.3f", (total / runs)}')
+  
+  # Update metrics file
+  echo "runner_id=$runner_id,runs=$new_runs,total_runtime=$new_total_runtime,avg_runtime=$new_avg_runtime" > "$metrics_file"
+  
+  # Also append individual run data to a detailed log
+  echo "run_index=$run_index,start=$start_ts,end=$end_ts,runtime=$runtime" >> "${session_folder}/runner_${runner_id}_detailed.log"
 
   cd "$SCRIPT_DIR" || true
-  echo "[INFO] Runner #$runner_id (run #$run_index) completed in ${duration}s"
+  echo "[INFO] Runner #$runner_id (run #$run_index) completed in ${runtime}s"
 }
 
 # This function runs in the background for each runner. It loops until the
@@ -112,6 +141,9 @@ runner_loop() {
   local session_folder="$4"
 
   local run_count=1
+  
+  # Initialize metrics for this runner
+  initialize_runner_metrics "$runner_id" "$session_folder"
 
   while true; do
     local now
@@ -145,7 +177,7 @@ runner_loop() {
     (( run_count++ ))
   done
 
-  echo "[INFO] Runner #$runner_id finished its loop. (Last run index was $((run_count - 1)))."
+  echo "[INFO] Runner #$runner_id finished its loop. (Total runs: $((run_count - 1)))."
 }
 
 # Stop all runners (like before). We'll just call runnerScript.sh stop
@@ -157,12 +189,69 @@ stop_all_runners() {
   fi
 }
 
+# Generate a summary report for the test run
+generate_summary() {
+  local session_folder="$1"
+  local num_runners="$2"
+  local sim_time="$3"
+  local test_plan="$4"
+  local summary_file="${session_folder}/summary.txt"
+  
+  {
+    echo "Active Lab Summary Report"
+    echo "=========================="
+    echo "Date/Time: $(date)"
+    echo "Runners: $num_runners"
+    echo "Simulation Time: $sim_time seconds"
+    echo "Test Plan: $test_plan"
+    echo ""
+    echo "Runner Statistics:"
+    echo "----------------"
+    
+    # Calculate total runs and average runtime across all runners
+    local total_runs=0
+    local all_runtimes=()
+    
+    for r in $(seq 1 "$num_runners"); do
+      local metrics_file="${session_folder}/runner_${r}_metrics.log"
+      if [[ -f "$metrics_file" ]]; then
+        local runs=$(grep -oP 'runs=\K[0-9]+' "$metrics_file" || echo "0")
+        local avg_runtime=$(grep -oP 'avg_runtime=\K[0-9.]+' "$metrics_file" || echo "0.000")
+        local total_runtime=$(grep -oP 'total_runtime=\K[0-9.]+' "$metrics_file" || echo "0.000")
+        
+        echo "Runner #$r: $runs runs, avg runtime: ${avg_runtime}s, total runtime: ${total_runtime}s"
+        
+        total_runs=$((total_runs + runs))
+        all_runtimes+=("$avg_runtime")
+      else
+        echo "Runner #$r: No metrics available"
+      fi
+    done
+    
+    echo ""
+    echo "Total runs across all runners: $total_runs"
+    
+    # Calculate overall average if we have runtimes
+    if [[ ${#all_runtimes[@]} -gt 0 ]]; then
+      local sum=0
+      for rt in "${all_runtimes[@]}"; do
+        sum=$(awk -v sum="$sum" -v rt="$rt" 'BEGIN {printf "%.3f", (sum + rt)}')
+      done
+      local overall_avg=$(awk -v sum="$sum" -v count="${#all_runtimes[@]}" 'BEGIN {printf "%.3f", (sum / count)}')
+      echo "Overall average runtime: ${overall_avg}s"
+    fi
+    
+  } > "$summary_file"
+  
+  echo "[INFO] Summary report generated at: $summary_file"
+}
+
 #############################################
 #              MAIN SCRIPT LOGIC           #
 #############################################
 
 # 1) Parse arguments
-if [[ $# -ne 4 ]]; then
+if [[ $# -lt 4 ]]; then
   usage
 fi
 
@@ -200,7 +289,7 @@ fi
 
 # 4) Create a dated subfolder in metrics to store logs for this run
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-SESSION_FOLDER="${METRICS_DIR}/${RUN_TIMESTAMP}"
+SESSION_FOLDER="${METRICS_DIR}/activeLab_${RUN_TIMESTAMP}"
 mkdir -p "$SESSION_FOLDER"
 
 echo "----------------------------------------------------"
@@ -242,7 +331,10 @@ done
 
 echo "[INFO] All runner loops have completed. This means no new test plans will be started."
 
-# 8) Stop all runners (they might be idle at this point)
+# 8) Generate a summary report
+generate_summary "$SESSION_FOLDER" "$NUM_RUNNERS" "$SIM_TIME" "$ABS_TEST_PLAN"
+
+# 9) Stop all runners (they might be idle at this point)
 echo "----------------------------------------------------"
 echo "[INFO] Simulation time ended and all test-plan loops are done. Stopping all runners."
 stop_all_runners

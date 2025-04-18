@@ -9,13 +9,16 @@ source "${SCRIPT_DIR}/metric_tools.sh"
 METRICS_DIR="${SCRIPT_DIR}/metrics"
 mkdir -p "$METRICS_DIR"
 
+# Create a timestamped folder for this run
+RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+SESSION_FOLDER="${METRICS_DIR}/noisyNeighbors_${RUN_TIMESTAMP}"
+mkdir -p "$SESSION_FOLDER"
+
 # --- CONFIGURATION ---
 STARTING_PORT=20110
 MAX_RUNNERS=97
 TAP_URL="https://test-automation.pw.keysight.com"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-METRICS_DIR="${SCRIPT_DIR}/metrics"
-
 
 # Function to check if runners directories exist
 function check_runners_exist() {
@@ -54,7 +57,7 @@ function run_test_plan() {
   local runner_id=$1
   local test_plan=$2
   local is_baseline=$3
-  local output_file="${METRICS_DIR}/runner_${runner_id}_metrics.log"
+  local output_file="${SESSION_FOLDER}/runner_${runner_id}_metrics.log"
   local runner_dir="$HOME/runner_$runner_id"
   local runner_port=$((STARTING_PORT + runner_id - 1))
   local test_plan_path="${SCRIPT_DIR}/${test_plan}"
@@ -75,13 +78,13 @@ function run_test_plan() {
   # Execute the test plan and capture output
   if [[ "$is_baseline" == "true" ]]; then
     # For baseline, capture detailed output
-    ./tap run "$test_plan_path" 2>&1 | tee "${METRICS_DIR}/runner_${runner_id}_output.log" || {
+    ./tap run "$test_plan_path" 2>&1 | tee "${SESSION_FOLDER}/runner_${runner_id}_output.log" || {
       echo "[ERROR] Failed to run test plan on runner #$runner_id."
       return 1
     }
   else
     # For concurrent runners, just capture basic output
-    ./tap run "$test_plan_path" > "${METRICS_DIR}/runner_${runner_id}_output.log" 2>&1 || {
+    ./tap run "$test_plan_path" > "${SESSION_FOLDER}/runner_${runner_id}_output.log" 2>&1 || {
       echo "[ERROR] Failed to run test plan on runner #$runner_id."
       return 1
     }
@@ -98,12 +101,81 @@ function run_test_plan() {
   echo "[INFO] Runner #$runner_id completed in $runtime seconds"
 }
 
+# Function to generate a summary report
+function generate_summary() {
+  local test_plan="$1"
+  local num_runners="$2"
+  local baseline_runtime="$3"
+  local summary_file="${SESSION_FOLDER}/summary.txt"
+  
+  {
+    echo "Noisy Neighbors Performance Test Summary"
+    echo "========================================"
+    echo "Date/Time: $(date)"
+    echo "Test Plan: $test_plan"
+    echo "Total Runners: $num_runners"
+    echo ""
+    echo "Baseline Performance (Runner #1 solo):"
+    echo "Runtime: $baseline_runtime seconds"
+    echo ""
+    echo "Concurrent Runners Performance:"
+    
+    local total_runtime=0
+    local count=0
+    local min_runtime=9999999
+    local max_runtime=0
+    
+    # Skip runner 1 as it's the baseline
+    for (( i=2; i<=num_runners; i++ )); do
+      local metrics_file="${SESSION_FOLDER}/runner_${i}_metrics.log"
+      if [[ -f "$metrics_file" ]]; then
+        local runtime=$(grep -oP 'runtime=\K[0-9.]+' "$metrics_file" || echo "0.000")
+        echo "Runner #$i: $runtime seconds"
+        
+        # Update stats
+        total_runtime=$(echo "$total_runtime + $runtime" | bc)
+        count=$((count + 1))
+        
+        # Update min/max
+        if (( $(echo "$runtime < $min_runtime" | bc -l) )); then
+          min_runtime=$runtime
+        fi
+        if (( $(echo "$runtime > $max_runtime" | bc -l) )); then
+          max_runtime=$runtime
+        fi
+      else
+        echo "Runner #$i: No metrics available"
+      fi
+    done
+    
+    echo ""
+    
+    # Calculate average if we have any data
+    if [[ $count -gt 0 ]]; then
+      local avg_runtime=$(echo "scale=3; $total_runtime / $count" | bc)
+      local perf_impact=$(echo "scale=2; ($avg_runtime - $baseline_runtime) / $baseline_runtime * 100" | bc)
+      
+      echo "Statistics:"
+      echo "  Average concurrent runtime: $avg_runtime seconds"
+      echo "  Minimum runtime: $min_runtime seconds"
+      echo "  Maximum runtime: $max_runtime seconds"
+      echo "  Performance impact: $perf_impact% (compared to baseline)"
+    else
+      echo "No concurrent runner data available for statistics."
+    fi
+    
+  } > "$summary_file"
+  
+  echo "[INFO] Summary report generated at: $summary_file"
+}
 
 # Main script logic
 clear
 echo "======================================================"
 echo "          NOISY NEIGHBORS PERFORMANCE TEST            "
 echo "======================================================"
+echo "[INFO] Test data will be stored in: $SESSION_FOLDER"
+echo "------------------------------------------------------"
 
 if [[ $# -lt 1 ]]; then
   echo "Usage: $0 <number_of_runners>"
@@ -136,15 +208,14 @@ echo "[INFO] Baseline: Runner #1 running solo"
 echo "[INFO] Then: Runner #1 plus $(( N - 1 )) concurrent runners"
 
 # start the metric collecting processes
-start_metrics
-
+start_metrics "$SESSION_FOLDER"
 
 # First: Run baseline test with just Runner #1
 echo "----------------------------------------------------"
 echo "[INFO] PHASE 1: Running baseline test on Runner #1 only..."
 run_test_plan 1 "$TEST_PLAN" true
-local_baseline_runtime=$(grep -oP 'runtime=\K[0-9.]+' "${METRICS_DIR}/runner_1_metrics.log")
-echo "[INFO] Baseline completed in $local_baseline_runtime seconds"
+baseline_runtime=$(grep -oP 'runtime=\K[0-9.]+' "${SESSION_FOLDER}/runner_1_metrics.log")
+echo "[INFO] Baseline completed in $baseline_runtime seconds"
 
 # Now run the same test with noisy neighbors
 echo "----------------------------------------------------"
@@ -206,13 +277,17 @@ while ! $COMPLETED; do
   fi
 done
 
-kill_metrics
+kill_metrics "$SESSION_FOLDER"
 
 echo "[INFO] Analyzing performance metrics..."
 
+# Generate the summary report
+generate_summary "$TEST_PLAN" "$N" "$baseline_runtime"
+
 # Analyze performance impact
-analyze_metrics
+analyze_metrics "$SESSION_FOLDER"
 
 echo "======================================================"
 echo "          TEST COMPLETED SUCCESSFULLY                 "
 echo "======================================================"
+echo "[INFO] All metrics and logs are in: $SESSION_FOLDER"
