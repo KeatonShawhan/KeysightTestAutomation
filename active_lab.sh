@@ -16,7 +16,7 @@
 #   (5 runners, 120s simulation time, test plan MyPlan.TapPlan, provided registration token)
 #
 # Requirements:
-#   - runnerScript.sh in the same directory
+#   - runnerScript.sh and metric_tools.sh in the same directory
 #   - .NET runtime, expect, ss, unzip, curl
 #   - The specified test plan must be a valid .TapFile
 #
@@ -28,8 +28,14 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
 
+# Import the metric tools functions
+source "${SCRIPT_DIR}/metric_tools.sh"
+
 METRICS_DIR="${SCRIPT_DIR}/metrics"
 mkdir -p "${METRICS_DIR}"
+
+# Array to hold the PIDs of the monitoring processes
+declare -a MONITOR_PIDS=()
 
 #############################################
 #        UTILITY & HELPER FUNCTIONS        #
@@ -206,11 +212,15 @@ mkdir -p "$SESSION_FOLDER"
 echo "----------------------------------------------------"
 echo "[INFO] This run's metrics/logs will be in: $SESSION_FOLDER"
 
-# 5) Stop all runners (clean slate)
+# 5) Start metrics collection
+echo "[INFO] Starting system metrics collection..."
+start_metrics
+
+# 6) Stop all runners (clean slate)
 echo "[INFO] Stopping any existing runners first..."
 stop_all_runners
 
-# 6) Spin up the requested number of runners
+# 7) Spin up the requested number of runners
 echo "[INFO] Spinning up $NUM_RUNNERS runner(s)..."
 if [[ -f "$RUNNER_SCRIPT" ]]; then
   "$RUNNER_SCRIPT" start "$NUM_RUNNERS" "$REG_TOKEN"
@@ -219,7 +229,7 @@ else
   exit 1
 fi
 
-# 7) Start the simulation
+# 8) Start the simulation
 echo "----------------------------------------------------"
 echo "[INFO] Beginning simulation with $NUM_RUNNERS runners for $SIM_TIME seconds."
 SIM_START=$(date +%s)
@@ -242,10 +252,18 @@ done
 
 echo "[INFO] All runner loops have completed. This means no new test plans will be started."
 
-# 8) Stop all runners (they might be idle at this point)
+# 9) Stop all runners (they might be idle at this point)
 echo "----------------------------------------------------"
 echo "[INFO] Simulation time ended and all test-plan loops are done. Stopping all runners."
 stop_all_runners
+
+# 10) Stop metrics collection
+echo "[INFO] Stopping system metrics collection..."
+kill_metrics
+
+# 11) Generate performance analysis and charts
+echo "[INFO] Generating performance analysis and charts..."
+analyze_metrics
 
 echo "----------------------------------------------------"
 echo "[INFO] Done. Metrics and outputs are in: $SESSION_FOLDER"
