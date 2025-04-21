@@ -8,11 +8,12 @@
 # randomly so each wave might have different IDs. 
 #
 # Usage:
-#   ./9am_monday.sh <runners> <test_plan_path> <registration_token> [simulate_logins]
+#   ./9am_monday.sh <runners> <test_plan_path> <registration_token> [simulate_logins] [login_retries]
 #
 # Example:
 #   ./9am_monday.sh 10 MyPlan.TapPlan <myRegToken>
 #   ./9am_monday.sh 10 MyPlan.TapPlan <myRegToken> true
+#   ./9am_monday.sh 10 MyPlan.TapPlan <myRegToken> true 3
 #
 # Requirements:
 #   - runnerScript.sh in the same directory
@@ -35,6 +36,7 @@ mkdir -p "${METRICS_DIR}"
 
 # Default login simulation settings
 DEFAULT_SIMULATE_LOGINS="false"
+DEFAULT_LOGIN_RETRIES=2
 
 #############################################
 #        UTILITY & HELPER FUNCTIONS        #
@@ -42,8 +44,9 @@ DEFAULT_SIMULATE_LOGINS="false"
 
 usage() {
   echo "Usage:"
-  echo "  $0 <runners> <test_plan_path> <registration_token> [simulate_logins]"
+  echo "  $0 <runners> <test_plan_path> <registration_token> [simulate_logins] [login_retries]"
   echo "  simulate_logins: 'true' or 'false' (default: false)"
+  echo "  login_retries: number of retries for failed login simulations (default: 2)"
   echo "  (When simulate_logins is true, one login will be simulated per runner)"
   exit 1
 }
@@ -78,12 +81,50 @@ check_dependencies() {
   return 0
 }
 
+# Try to run a Cypress login with retries
+run_cypress_login() {
+  local login_id="$1"
+  local log_file="$2"
+  local max_retries="$3"
+  local retry=0
+  local success=false
+  
+  while [[ "$retry" -le "$max_retries" && "$success" = "false" ]]; do
+    if [[ "$retry" -gt 0 ]]; then
+      echo "[INFO] Login simulation #$login_id - Retry attempt $retry of $max_retries"
+    fi
+    
+    # Run Cypress
+    cd "$PROJECT_ROOT" && npx cypress run --spec cypress/tests/auth.spec.js --env environment=production,login_email=test-email@gmail.com,login_username=test-email@gmail.com,login_password=testpass123 > "$log_file" 2>&1
+    
+    # Check the exit code
+    if [[ $? -eq 0 ]]; then
+      echo "[INFO] Login simulation #$login_id successful on attempt $((retry+1))"
+      success=true
+      break
+    else
+      echo "[WARN] Login simulation #$login_id failed on attempt $((retry+1))"
+      retry=$((retry+1))
+      # Add a small delay before retrying
+      sleep 2
+    fi
+  done
+  
+  if [[ "$success" = "false" ]]; then
+    echo "[ERROR] Login simulation #$login_id failed after $max_retries retries"
+    return 1
+  fi
+  
+  return 0
+}
+
 # Simulate multiple users logging in
 simulate_logins() {
   local num_logins="$1"
   local session_folder="$2"
+  local max_retries="$3"
   
-  echo "[INFO] Simulating $num_logins users logging in simultaneously (one per runner)..."
+  echo "[INFO] Simulating $num_logins users logging in simultaneously (one per runner), with up to $max_retries retries..."
   
   # Create a directory for login simulation logs
   local login_logs_dir="${session_folder}/login_logs"
@@ -91,26 +132,45 @@ simulate_logins() {
   
   # Run multiple login simulations in parallel
   local pids=()
+  local log_files=()
   for (( i=1; i<=$num_logins; i++ )); do
     local log_file="${login_logs_dir}/login_${i}.log"
+    log_files+=("$log_file")
     
-    # Run Cypress in the background
+    # Run Cypress in the background with retry logic
     (
       echo "[INFO] Starting login simulation #$i"
-      cd "$PROJECT_ROOT" && npx cypress run --spec cypress/tests/auth.spec.js --env environment=production,login_email=test-email@gmail.com,login_username=test-email@gmail.com,login_password=testpass123 > "$log_file" 2>&1
-      echo "[INFO] Login simulation #$i completed"
+      run_cypress_login "$i" "$log_file" "$max_retries"
+      echo "[INFO] Login simulation #$i process completed"
     ) &
     pids+=($!)
   done
   
   # Wait for all login simulations to complete
-  echo "[INFO] Waiting for all login simulations to complete..."
+  echo "[INFO] Waiting for all login simulations to complete (with retries if needed)..."
+  local failed=0
   for pid in "${pids[@]}"; do
-    wait "$pid"
+    if ! wait "$pid"; then
+      failed=$((failed+1))
+    fi
   done
   
-  echo "[INFO] All login simulations completed."
-  return 0
+  if [[ "$failed" -gt 0 ]]; then
+    echo "[WARN] $failed out of $num_logins login simulations failed after all retries"
+  else
+    echo "[INFO] All login simulations completed successfully."
+  fi
+  
+  # Summarize results
+  echo "----------------------------------------------------"
+  echo "[INFO] Login simulation summary:"
+  echo "  - Total login attempts: $num_logins"
+  echo "  - Successful logins: $((num_logins-failed))"
+  echo "  - Failed logins: $failed"
+  echo "  - Logs are available in: $login_logs_dir"
+  echo "----------------------------------------------------"
+  
+  return $failed
 }
 
 # Run a test plan on a specific runner (parallel-friendly).
@@ -163,7 +223,7 @@ stop_all_runners() {
 #############################################
 
 # 1) Argument check
-if [[ $# -lt 3 || $# -gt 4 ]]; then
+if [[ $# -lt 3 || $# -gt 5 ]]; then
   usage
 fi
 
@@ -171,6 +231,7 @@ NUM_RUNNERS="$1"
 USER_TEST_PLAN="$2"
 REG_TOKEN="$3"
 SIMULATE_LOGINS="${4:-$DEFAULT_SIMULATE_LOGINS}"
+LOGIN_RETRIES="${5:-$DEFAULT_LOGIN_RETRIES}"
 
 if (( NUM_RUNNERS < 1 )); then
   echo "[ERROR] Number of runners must be >=1."
@@ -201,19 +262,11 @@ mkdir -p "$SESSION_FOLDER"
 echo "----------------------------------------------------"
 echo "[INFO] 9AM Monday scenario. Logs in: $SESSION_FOLDER"
 
-# 5) Simulate login traffic if requested
-if [[ "$SIMULATE_LOGINS" == "true" ]]; then
-  echo "[INFO] Simulating login traffic with $NUM_RUNNERS concurrent logins (one per runner)..."
-  simulate_logins "$NUM_RUNNERS" "$SESSION_FOLDER"
-else
-  echo "[INFO] Login simulation disabled. Proceeding with runner setup..."
-fi
-
-# 6) Stop all existing runners
+# 5) Stop all existing runners
 echo "[INFO] Stopping any existing runners first..."
 stop_all_runners
 
-# 7) Spin up the requested number of runners
+# 6) Spin up the requested number of runners
 echo "[INFO] Spinning up $NUM_RUNNERS runner(s)..."
 if [[ -f "$RUNNER_SCRIPT" ]]; then
   "$RUNNER_SCRIPT" start "$NUM_RUNNERS" "$REG_TOKEN"
@@ -222,9 +275,28 @@ else
   exit 1
 fi
 
-# 8) A short initial pause
-echo "[INFO] Runners spun up. Waiting 5 seconds before wave ramp-up..."
+# 7) A short initial pause
+echo "[INFO] Runners spun up. Waiting 5 seconds before continuing..."
 sleep 5
+
+# 8) Simulate login traffic if requested - MOVED HERE from earlier in the flow
+if [[ "$SIMULATE_LOGINS" == "true" ]]; then
+  echo "[INFO] Simulating login traffic with $NUM_RUNNERS concurrent logins (one per runner)..."
+  simulate_logins "$NUM_RUNNERS" "$SESSION_FOLDER" "$LOGIN_RETRIES"
+  
+  # Check if too many login simulations failed
+  login_failures=$?
+  max_allowed_failures=$((NUM_RUNNERS / 2))
+  if [[ "$login_failures" -gt "$max_allowed_failures" ]]; then
+    echo "[ERROR] Too many login simulations failed ($login_failures). Cannot proceed with test execution."
+    stop_all_runners
+    exit 1
+  elif [[ "$login_failures" -gt 0 ]]; then
+    echo "[WARN] Some login simulations failed ($login_failures), but we can still proceed with test execution."
+  fi
+else
+  echo "[INFO] Login simulation disabled. Proceeding with test execution..."
+fi
 
 # -------------------------------------------------------------------------
 #  WAVE LOGIC
