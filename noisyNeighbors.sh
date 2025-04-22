@@ -186,6 +186,7 @@ fi
 NUM_RUNNERS="$1"
 TEST_PLAN="$2"
 REG_TOKEN="$3"
+export NUM_RUNNERS=$NUM_RUNNERS
 
 if (( NUM_RUNNERS < 2 )); then
   echo "[ERROR] At least 2 runners are required (1 baseline + 1 concurrent)."
