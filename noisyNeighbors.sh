@@ -6,17 +6,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 # now set up where logs will go
 METRICS_DIR="${SCRIPT_DIR}/metrics"
 mkdir -p "$METRICS_DIR"
-export METRICS_DIR
-
-
-# resolve script directory, then load our metric helpers
-source "${SCRIPT_DIR}/metric_tools.sh"
-
 
 # Create a timestamped folder for this run
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 SESSION_FOLDER="${METRICS_DIR}/noisyNeighbors_${RUN_TIMESTAMP}"
 mkdir -p "$SESSION_FOLDER"
+export METRICS_DIR="$SESSION_FOLDER"
+
+source "${SCRIPT_DIR}/metric_tools.sh"
 
 RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
 
