@@ -14,29 +14,14 @@ RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 SESSION_FOLDER="${METRICS_DIR}/noisyNeighbors_${RUN_TIMESTAMP}"
 mkdir -p "$SESSION_FOLDER"
 
+RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
+
 # --- CONFIGURATION ---
 STARTING_PORT=20110
 MAX_RUNNERS=97
 TAP_URL="https://test-automation.pw.keysight.com"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-# Function to check if runners directories exist
-function check_runners_exist() {
-  local count=0
-  for i in $(seq 1 "$MAX_RUNNERS"); do
-    if [[ -d "$HOME/runner_$i" ]]; then
-      count=$((count + 1))
-    fi
-  done
-  
-  if [[ $count -lt $1 ]]; then
-    echo "[ERROR] Not enough runners found. Found $count, but need $1."
-    echo "[INFO] Please run the multi_runner.sh script to create more runners."
-    exit 1
-  fi
-  
-  echo "[INFO] Found $count runners, which is sufficient for testing."
-}
 
 # Function to verify the test plan exists in the script directory
 function verify_test_plan() {
@@ -169,6 +154,15 @@ function generate_summary() {
   echo "[INFO] Summary report generated at: $summary_file"
 }
 
+usage() {
+  echo "Usage:"
+  echo "  $0 <runners> <registration_token>"
+  echo ""
+  echo "  <runners>                Number of runners to spin up (>=1)."
+  echo "  <registration_token>     Registration token for tap runner register."
+  exit 1
+}
+
 # Main script logic
 clear
 echo "======================================================"
@@ -178,24 +172,43 @@ echo "[INFO] Test data will be stored in: $SESSION_FOLDER"
 echo "------------------------------------------------------"
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <number_of_runners>"
+  echo "Usage: $0 <number_of_runners> <registration_token>"
   exit 1
 fi
 
-N=$1
+# 1) Parse arguments
+if [[ $# -lt 2 ]]; then
+  usage
+fi
 
-if (( N < 2 )); then
+NUM_RUNNERS="$1"
+REG_TOKEN="$2"
+
+if (( NUM_RUNNERS < 2 )); then
   echo "[ERROR] At least 2 runners are required (1 baseline + 1 concurrent)."
   exit 1
 fi
 
-if (( N > MAX_RUNNERS )); then
+if (( NUM_RUNNERS > MAX_RUNNERS )); then
   echo "[ERROR] Invalid number of runners. Must be between 2 and $MAX_RUNNERS."
   exit 1
 fi
 
-# Check if we have enough runner directories
-check_runners_exist "$N"
+
+
+# 5) Stop all existing runners
+echo "[INFO] Stopping any existing runners first..."
+stop_all_runners
+
+# 6) Spin up the requested number of runners
+echo "[INFO] Spinning up $NUM_RUNNERS runner(s)..."
+if [[ -f "$RUNNER_SCRIPT" ]]; then
+  "$RUNNER_SCRIPT" start "$NUM_RUNNERS" "$REG_TOKEN"
+else
+  echo "[ERROR] runnerScript.sh not found at '$RUNNER_SCRIPT'"
+  exit 1
+fi
+
 
 # Get test plan name from user
 read -p "Enter the test plan name to execute (must be in this directory): " TEST_PLAN
@@ -203,7 +216,7 @@ read -p "Enter the test plan name to execute (must be in this directory): " TEST
 # Verify the test plan exists in the script directory
 verify_test_plan "$TEST_PLAN"
 
-echo "[INFO] Starting performance test with $N runners"
+echo "[INFO] Starting performance test with $NUM_RUNNERS runners"
 echo "[INFO] Baseline: Runner #1 running solo"
 echo "[INFO] Then: Runner #1 plus $(( N - 1 )) concurrent runners"
 
@@ -252,6 +265,15 @@ function all_runners_complete() {
   return 0
 }
 
+# Stop all runners
+stop_all_runners() {
+  if [[ -f "$RUNNER_SCRIPT" ]]; then
+    "$RUNNER_SCRIPT" stop
+  else
+    echo "[ERROR] runnerScript.sh not found at '$RUNNER_SCRIPT'"
+  fi
+}
+
 # Wait for all processes to finish with a timeout
 COMPLETED=false
 while ! $COMPLETED; do
@@ -282,7 +304,7 @@ kill_metrics "$SESSION_FOLDER"
 echo "[INFO] Analyzing performance metrics..."
 
 # Generate the summary report
-generate_summary "$TEST_PLAN" "$N" "$baseline_runtime"
+generate_summary "$TEST_PLAN" "$NUM_RUNNERS" "$baseline_runtime"
 
 # Analyze performance impact
 analyze_metrics "$SESSION_FOLDER"
