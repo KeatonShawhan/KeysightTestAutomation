@@ -198,7 +198,8 @@ fi
 
 # 5) Stop all existing runners
 echo "[INFO] Stopping any existing runners first..."
-stop_all_runners
+if [[ -f "$RUNNER_SCRIPT" ]]; then
+  "$RUNNER_SCRIPT" stop
 
 # 6) Spin up the requested number of runners
 echo "[INFO] Spinning up $NUM_RUNNERS runner(s)..."
