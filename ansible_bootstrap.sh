@@ -59,32 +59,35 @@ fi
 
 cd "$CLONE_DIR"
 
-
-
+# ensure per‑repo author
 if ! git config --get user.email >/dev/null; then
-    git config user.email  "${HOSTNAME}@farmslug.local"
-    git config user.name   "${HOSTNAME}"
+  git config user.email "${HOSTNAME}@farmslug.local"
+  git config user.name  "${HOSTNAME}"
 fi
 
-
 echo "▶ Updating host_keys.txt if necessary…"
-grep -q "^${HOSTNAME}[[:space:]]" "$KEY_FILE" 2>/dev/null || {
+if ! grep -q "^${HOSTNAME}[[:space:]]" "$KEY_FILE" 2>/dev/null; then
   echo "${HOSTNAME}  ${PUBKEY}" >> "$KEY_FILE"
   git add "$KEY_FILE"
   git commit -m "add key for $HOSTNAME" --quiet
-  if ! git push --quiet; then
-    cat <<EOF
-❌ Push failed.  Most likely this Pi's public key has NOT yet been
-added as a write‑enabled deploy key for the repo.
 
-Please add the key you see below to the repo's *Deploy keys*
-(✔ “Allow write access”) and run the bootstrap again.
+  # 1 pull --rebase to integrate any peer’s change
+  git pull --rebase --quiet || {
+      echo "❌ git pull --rebase failed; please resolve manually."
+      exit 1
+  }
 
-$PUBKEY
-EOF
-    exit 1
+  # 2 push (set upstream if this is the first push from this clone)
+  if ! git push --quiet 2>/dev/null; then
+      git push -u origin "$(git symbolic-ref --short HEAD)" || {
+        echo "❌ git push failed — check deploy‑key permission or conflicts."
+        exit 1
+      }
   fi
-}
+else
+  echo "  entry already present — nothing to commit."
+fi
+
 
 echo "▶ Installing generate_inventory.sh to /usr/local/bin …"
 /usr/bin/sudo install -m 0755 "$CLONE_DIR/generate_inventory.sh" /usr/local/bin/
