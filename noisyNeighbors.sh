@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 set -e
 
-# resolve script directory, then load our metric helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-source "${SCRIPT_DIR}/metric_tools.sh"
 
 # now set up where logs will go
 METRICS_DIR="${SCRIPT_DIR}/metrics"
 mkdir -p "$METRICS_DIR"
+export METRICS_DIR
+
+
+# resolve script directory, then load our metric helpers
+source "${SCRIPT_DIR}/metric_tools.sh"
+
 
 # Create a timestamped folder for this run
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
