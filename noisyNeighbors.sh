@@ -200,6 +200,10 @@ fi
 echo "[INFO] Stopping any existing runners first..."
 if [[ -f "$RUNNER_SCRIPT" ]]; then
   "$RUNNER_SCRIPT" stop
+else
+  echo "[WARNING] runnerScript.sh not found, skipping stop"
+fi
+
 
 # 6) Spin up the requested number of runners
 echo "[INFO] Spinning up $NUM_RUNNERS runner(s)..."
