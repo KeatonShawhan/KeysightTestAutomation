@@ -178,7 +178,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 # 1) Parse arguments
-if [[ $# -lt 2 ]]; then
+if [[ $# -lt 3 ]]; then
   usage
 fi
 
