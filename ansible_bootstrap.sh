@@ -59,6 +59,14 @@ fi
 
 cd "$CLONE_DIR"
 
+
+
+if ! git config --get user.email >/dev/null; then
+    git config user.email  "${HOSTNAME}@farmslug.local"
+    git config user.name   "${HOSTNAME}"
+fi
+
+
 echo "▶ Updating host_keys.txt if necessary…"
 grep -q "^${HOSTNAME}[[:space:]]" "$KEY_FILE" 2>/dev/null || {
   echo "${HOSTNAME}  ${PUBKEY}" >> "$KEY_FILE"
