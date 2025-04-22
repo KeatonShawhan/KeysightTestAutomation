@@ -159,6 +159,7 @@ usage() {
   echo "  $0 <runners> <registration_token>"
   echo ""
   echo "  <runners>                Number of runners to spin up (>=1)."
+  echo "  <test_plan_path>         Path to a valid .TapFile."
   echo "  <registration_token>     Registration token for tap runner register."
   exit 1
 }
@@ -172,7 +173,7 @@ echo "[INFO] Test data will be stored in: $SESSION_FOLDER"
 echo "------------------------------------------------------"
 
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <number_of_runners> <registration_token>"
+  echo "Usage: $0 <number_of_runners> <test_plan_path> <registration_token>"
   exit 1
 fi
 
@@ -182,7 +183,8 @@ if [[ $# -lt 2 ]]; then
 fi
 
 NUM_RUNNERS="$1"
-REG_TOKEN="$2"
+TEST_PLAN="$2"
+REG_TOKEN="$3"
 
 if (( NUM_RUNNERS < 2 )); then
   echo "[ERROR] At least 2 runners are required (1 baseline + 1 concurrent)."
@@ -215,15 +217,9 @@ else
 fi
 
 
-# Get test plan name from user
-read -p "Enter the test plan name to execute (must be in this directory): " TEST_PLAN
-
-# Verify the test plan exists in the script directory
-verify_test_plan "$TEST_PLAN"
-
 echo "[INFO] Starting performance test with $NUM_RUNNERS runners"
 echo "[INFO] Baseline: Runner #1 running solo"
-echo "[INFO] Then: Runner #1 plus $(( N - 1 )) concurrent runners"
+echo "[INFO] Then: Runner #1 plus $(( NUM_RUNNERS - 1 )) concurrent runners"
 
 # start the metric collecting processes
 start_metrics "$SESSION_FOLDER"
@@ -237,13 +233,13 @@ echo "[INFO] Baseline completed in $baseline_runtime seconds"
 
 # Now run the same test with noisy neighbors
 echo "----------------------------------------------------"
-echo "[INFO] PHASE 2: Running tests with $((N-1)) concurrent runners..."
+echo "[INFO] PHASE 2: Running tests with $((NUM_RUNNERS-1)) concurrent runners..."
 
 # Array to hold PIDs of all runners
 declare -a RUNNER_PIDS
 
 # Start all runners concurrently
-for (( i=2; i<=N; i++ )); do
+for (( i=2; i<=NUM_RUNNERS; i++ )); do
   # Run each test plan in a subshell and capture its PID
   (run_test_plan "$i" "$TEST_PLAN" false) &
   RUNNER_PIDS+=($!)
@@ -251,7 +247,7 @@ for (( i=2; i<=N; i++ )); do
   sleep 0.5
 done
 
-echo "[INFO] Started $(( N - 1 )) concurrent runners."
+echo "[INFO] Started $(( NUM_RUNNERS - 1 )) concurrent runners."
 echo "[INFO] Waiting for all test runners to complete..."
 
 # Wait for all runners to complete with timeout
