@@ -16,7 +16,7 @@
 #   ./9am_monday.sh 10 MyPlan.TapPlan <myRegToken> true 3
 #
 # Requirements:
-#   - runnerScript.sh in the same directory
+#   - runnerScript.sh in the parent directory
 #   - .NET runtime, expect, ss, unzip, curl, etc.
 #   - The specified test plan must be a valid .TapFile
 #   - Cypress installed (only if simulate_logins=true)
@@ -27,9 +27,17 @@
 #             CONFIG & GLOBALS             #
 #############################################
 
+# Path to the current script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
+
+# Path to the parent directory (KeysightTestAutomation)
+PARENT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Path to the auth service directory
+AUTH_SERVICE_DIR="${PARENT_DIR}/ks8500-auth-service"
+
+# Path to the runner script
+RUNNER_SCRIPT="${PARENT_DIR}/runnerScript.sh"
 
 METRICS_DIR="${SCRIPT_DIR}/metrics"
 mkdir -p "${METRICS_DIR}"
@@ -94,8 +102,8 @@ run_cypress_login() {
       echo "[INFO] Login simulation #$login_id - Retry attempt $retry of $max_retries"
     fi
     
-    # Run Cypress
-    cd "$PROJECT_ROOT" && npx cypress run --spec cypress/tests/auth.spec.js --env environment=production,login_email=test-email@gmail.com,login_username=test-email@gmail.com,login_password=testpass123 > "$log_file" 2>&1
+    # Run Cypress from the auth service directory
+    cd "$AUTH_SERVICE_DIR" && npx cypress run --spec cypress/tests/auth.spec.js --env environment=production,login_email=test-email@gmail.com,login_username=test-email@gmail.com,login_password=testpass123 > "$log_file" 2>&1
     
     # Check the exit code
     if [[ $? -eq 0 ]]; then
