@@ -1,21 +1,37 @@
 #!/usr/bin/env bash
-# ansible_bootstrap.sh  –  prompt for Tailscale auth-key first time
+# ansible_bootstrap.sh  –  prompt for Tailscale auth‑key the first time it runs
+# Installs: Tailscale, Git, Ansible, Avahi; clones repo; pushes pub‑key; joins tailnet.
 set -euo pipefail
 
-# ---- CONFIG ---------------------------------------------------------
-REPO_URL="git@github.com:<ORG>/<REPO>.git"   # CHANGE to your repo
-CLONE_DIR="$HOME/farmslug-repo"
-KEY_FILE="host_keys.txt"
-# --------------------------------------------------------------------
+# ── USER CONFIG ────────────────────────────────────────────────────
+REPO_URL="git@github.com:KeatonShawhan/KeysightTestAutomation.git"  # change if repo URL differs
+CLONE_DIR="$HOME/KeysightTestAutomation"                            # where repo will live
+KEY_FILE="host_keys.txt"                                           # inside the repo
+# ───────────────────────────────────────────────────────────────────
 
-echo "▶ Installing core packages (tailscale, ansible, git, avahi)…"
+# ------------------------------------------------------------------
+# 1. Add Tailscale APT repository (handles Bullseye or Bookworm)
+# ------------------------------------------------------------------
+OS_CODENAME=$(lsb_release -sc)   # bullseye | bookworm
+curl -fsSL "https://pkgs.tailscale.com/stable/raspbian/${OS_CODENAME}.gpg" \
+ | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+curl -fsSL "https://pkgs.tailscale.com/stable/raspbian/${OS_CODENAME}.list" \
+ | sed 's/^deb/ deb [signed-by=\/usr\/share\/keyrings\/tailscale-archive-keyring.gpg]/' \
+ | sudo tee /etc/apt/sources.list.d/tailscale.list >/dev/null
+
+# ------------------------------------------------------------------
+# 2. Install packages
+# ------------------------------------------------------------------
+echo "▶ Installing packages (tailscale, ansible, git, avahi)…"
 sudo apt-get update -qq
 sudo apt-get install -y tailscale jq git ansible avahi-daemon avahi-utils >/dev/null
 
-echo "▶ Enabling required services..."
-sudo systemctl enable --now avahi-daemon tailscaled
+# enable services
+sudo systemctl enable --now tailscaled avahi-daemon
 
-# -------- SSH key for Git + Ansible control -------------------------
+# ------------------------------------------------------------------
+# 3. Ensure an SSH key exists (used for Git + Ansible controller auth)
+# ------------------------------------------------------------------
 if [[ ! -f "$HOME/.ssh/id_ed25519" ]]; then
   echo "▶ Generating SSH key…"
   ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519"
@@ -23,14 +39,16 @@ fi
 PUBKEY=$(<"$HOME/.ssh/id_ed25519.pub")
 HOSTNAME=$(hostname)
 
-# -------- Clone or pull repo ----------------------------------------
+# ------------------------------------------------------------------
+# 4. Clone or update the scripts repo
+# ------------------------------------------------------------------
 if [[ -d "$CLONE_DIR/.git" ]]; then
   git -C "$CLONE_DIR" pull --quiet
 else
   echo "▶ Cloning repo $REPO_URL …"
   if ! git clone --quiet "$REPO_URL" "$CLONE_DIR"; then
     cat <<EOF
-❌  Clone failed.  Add this PUBLIC key as a write-enabled deploy key
+❌  Clone failed.  Add this PUBLIC key as a write‑enabled deploy key
     in the repo, then rerun this script.
 
 $PUBKEY
@@ -41,36 +59,40 @@ fi
 
 cd "$CLONE_DIR"
 
-# configure local author identity (once per clone)
-git config user.name  "${HOSTNAME}"      || true
+git config user.name  "$HOSTNAME"           || true
 git config user.email "${HOSTNAME}@farmslug.local" || true
 
-# -------- Update host_keys.txt & push -------------------------------
+# ------------------------------------------------------------------
+# 5. Append this host to host_keys.txt and push
+# ------------------------------------------------------------------
 if ! grep -q "^${HOSTNAME}[[:space:]]" "$KEY_FILE" 2>/dev/null; then
   echo "▶ Appending this host to $KEY_FILE and pushing…"
   echo "${HOSTNAME}  ${PUBKEY}" >> "$KEY_FILE"
   git add "$KEY_FILE"
   git commit -m "add key for $HOSTNAME" --quiet
   git pull --rebase --quiet || { echo "❌ git pull failed; fix manually."; exit 1; }
-  if ! git push 2>/dev/null; then
-    echo "❌ git push failed.  Make sure this key is a WRITE deploy key in GitHub."
+  if ! git push; then
+    echo "❌ git push failed — make sure this key is a WRITE deploy key in GitHub."
     exit 1
   fi
 fi
 
-# -------- Tailscale --------------------------------------------------
+# ------------------------------------------------------------------
+# 6. Bring Tailscale up (prompt for reusable auth‑key once)
+# ------------------------------------------------------------------
 if ! tailscale status --peers=false >/dev/null 2>&1; then
-  echo "▶ This Pi is not in the tailnet yet."
+  echo "▶ First‑time Tailscale login."
   read -rp "Enter your reusable Tailscale auth-key: " TS_AUTH_KEY
-  sudo tailscale up --authkey "$TS_AUTH_KEY" \
-        --hostname "$HOSTNAME" --ssh --accept-routes
+  sudo tailscale up --authkey "$TS_AUTH_KEY" --hostname "$HOSTNAME" --ssh --accept-routes
 else
   echo "▶ Tailscale already connected."
 fi
 
-echo "▶ Installing generate_inventory.sh…"
+# ------------------------------------------------------------------
+# 7. Install inventory helper
+# ------------------------------------------------------------------
 sudo install -m 0755 "$CLONE_DIR/generate_inventory.sh" /usr/local/bin/
 
 echo "✓ Bootstrap complete on $HOSTNAME"
-echo "   Run: generate_inventory.sh && ansible-playbook …"
+echo "   Next:  generate_inventory.sh && ansible-playbook …"
 
