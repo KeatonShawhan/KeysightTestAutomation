@@ -24,6 +24,16 @@ echo "▶ Installing Ansible, Git, Avahi, jq…"
 sudo apt-get update -qq
 sudo apt-get install -y ansible git jq avahi-daemon avahi-utils >/dev/null
 sudo systemctl enable --now tailscaled avahi-daemon
+echo "▶ Installing other runner prerequisites (expect, unzip, iproute2)…"
+sudo apt-get install -y expect unzip iproute2 curl >/dev/null
+
+echo "▶ Ensuring dotnet executable is on the global PATH…"
+DOTNET_BIN="$HOME/.dotnet/dotnet"
+if [[ -x "$DOTNET_BIN" ]]; then
+  sudo ln -sf "$DOTNET_BIN" /usr/local/bin/dotnet
+else
+  echo "⚠ dotnet not found in $DOTNET_BIN; skipping symlink."
+fi
 
 HOSTNAME=$(hostname)
 
