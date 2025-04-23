@@ -1,0 +1,94 @@
+---
+- name: Run “9 AM Monday” scenario on all farmslug Pis
+  hosts: all
+  gather_facts: no
+  vars:
+    # must be passed with --extra-vars or defaults below apply
+    runners: 3
+    test_plan: /home/pi/Baseline.TapPlan
+    reg_token: CHANGE_ME
+    repo_dir: ~/KeysightTestAutomation
+    script: 9am_monday.sh
+  tasks:
+
+  - name: Ensure repo is up-to-date (git pull)
+    ansible.builtin.shell: git -C {{ repo_dir }} pull --quiet
+    changed_when: false
+
+  - name: Run the 9 AM Monday script
+    ansible.builtin.shell: |
+      cd {{ repo_dir }}
+      ./{{ script }} {{ runners }} {{ test_plan }} {{ reg_token }}
+    async: 7200          # run up to 2 hours without blocking forks
+    poll: 0
+    register: job
+
+  - name: Wait for script to finish
+    ansible.builtin.async_status:
+      jid: "{{ job.ansible_job_id }}"
+    register: job_status
+    until: job_status.finished
+    retries: 720           # check every 10 s ⇒ 2 hours max
+    delay: 10
+
+  # ------------------------------------------------------------------
+  # Pull a host-level summary from the newest metrics folder
+  # ------------------------------------------------------------------
+  - name: Compute per-host summary (fastest / slowest / avg runtime)
+    ansible.builtin.shell: |
+      set -e
+      metrics_root="{{ repo_dir }}/metrics"
+      latest=$(ls -1td "$metrics_root"/* | head -1)
+      # grab all runtime numbers
+      awk -F',' '
+        /runtime=/{
+          split($0,a,"runtime="); print a[2]
+        }' "$latest"/*_metrics.log \
+      | awk '
+          {sum+=$1; n++; if(min==\"\"||$1<min){min=$1} if($1>max){max=$1}}
+          END{printf \"%s,%s,%s\", min, max, sum/n}
+        '
+    register: host_summary
+    changed_when: false
+
+  - name: Set host fact with parsed numbers
+    ansible.builtin.set_fact:
+      summary_parsed: |
+        {{
+          {
+            "fastest" : host_summary.stdout.split(",")[0]|float,
+            "slowest" : host_summary.stdout.split(",")[1]|float,
+            "average" : host_summary.stdout.split(",")[2]|float
+          }
+        }}
+
+  - name: Pass summary up to controller
+    ansible.builtin.set_fact:
+      all_summaries: "{{ all_summaries | default({}) | combine( {inventory_hostname: summary_parsed} ) }}"
+    delegate_to: localhost
+    run_once: false
+
+# --------------------------------------------------------------------
+# Controller-side aggregation / pretty print
+# --------------------------------------------------------------------
+- name: Aggregate & display results
+  hosts: localhost
+  gather_facts: no
+  vars:
+    all_summaries: "{{ hostvars['localhost'].all_summaries }}"
+  tasks:
+    - name: Print per-host summary table
+      ansible.builtin.debug:
+        msg: |
+          {% set hdr = "%-15s %10s %10s %10s" %}
+          {{ hdr % ("HOST","FASTEST","SLOWEST","AVERAGE") }}
+          {{ "-"*50 }}
+          {% for host,vals in all_summaries.items()|sort %}
+            {{ hdr %
+              (host,
+               ("%0.3f" % vals.fastest),
+               ("%0.3f" % vals.slowest),
+               ("%0.3f" % vals.average)) }}
+          {% endfor %}
+
+
