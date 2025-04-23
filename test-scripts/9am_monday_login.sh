@@ -103,7 +103,7 @@ run_cypress_login() {
     fi
     
     # Run Cypress from the auth service directory
-    cd "$AUTH_SERVICE_DIR" && npx cypress run --spec cypress/tests/auth.spec.js --env environment=production,login_email=test-email@gmail.com,login_username=test-email@gmail.com,login_password=testpass123 > "$log_file" 2>&1
+    cd "$AUTH_SERVICE_DIR" && npx cypress run --spec cypress/tests/auth.spec.js --env environment=production,login_email=?,login_username=?,login_password=? > "$log_file" 2>&1
     
     # Check the exit code
     if [[ $? -eq 0 ]]; then
@@ -249,7 +249,7 @@ fi
 # 2) Check dependencies
 check_dependencies "$SIMULATE_LOGINS"
 
-# 3) Resolve test plan path relative to the script directory if needed
+# 3) Resolve test plan path relative to the script directory or parent directory if needed
 ABS_TEST_PLAN=""
 if [[ -f "$USER_TEST_PLAN" ]]; then
   # If user gave an absolute path or a relative path from the current shell
@@ -257,8 +257,11 @@ if [[ -f "$USER_TEST_PLAN" ]]; then
 elif [[ -f "${SCRIPT_DIR}/${USER_TEST_PLAN}" ]]; then
   # If the file exists in the script directory
   ABS_TEST_PLAN="$(cd "$SCRIPT_DIR"; pwd)/$(basename "$USER_TEST_PLAN")"
+elif [[ -f "${PARENT_DIR}/${USER_TEST_PLAN}" ]]; then
+  # If the file exists in the parent directory (KeysightTestAutomation)
+  ABS_TEST_PLAN="$(cd "$PARENT_DIR"; pwd)/$(basename "$USER_TEST_PLAN")"
 else
-  echo "[ERROR] Test plan not found at '$USER_TEST_PLAN' nor '${SCRIPT_DIR}/${USER_TEST_PLAN}'"
+  echo "[ERROR] Test plan not found at '$USER_TEST_PLAN' nor '${SCRIPT_DIR}/${USER_TEST_PLAN}' nor '${PARENT_DIR}/${USER_TEST_PLAN}'"
   exit 1
 fi
 
