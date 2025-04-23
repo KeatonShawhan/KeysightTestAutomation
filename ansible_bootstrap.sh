@@ -9,22 +9,14 @@ CLONE_DIR="$HOME/KeysightTestAutomation"                            # where repo
 KEY_FILE="host_keys.txt"                                           # inside the repo
 # ───────────────────────────────────────────────────────────────────
 
-# ------------------------------------------------------------------
-# 1. Add Tailscale APT repository (handles Bullseye or Bookworm)
-# ------------------------------------------------------------------
-OS_CODENAME=$(lsb_release -sc)   # bullseye | bookworm
-curl -fsSL "https://pkgs.tailscale.com/stable/raspbian/${OS_CODENAME}.gpg" \
- | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-curl -fsSL "https://pkgs.tailscale.com/stable/raspbian/${OS_CODENAME}.list" \
- | sed 's/^deb/ deb [signed-by=\/usr\/share\/keyrings\/tailscale-archive-keyring.gpg]/' \
- | sudo tee /etc/apt/sources.list.d/tailscale.list >/dev/null
 
-# ------------------------------------------------------------------
-# 2. Install packages
-# ------------------------------------------------------------------
-echo "▶ Installing packages (tailscale, ansible, git, avahi)…"
+echo "▶ Installing Tailscale via official script…"
+curl -fsSL https://tailscale.com/install.sh | sudo sh
+
+echo "▶ Installing remaining packages…"
 sudo apt-get update -qq
-sudo apt-get install -y tailscale jq git ansible avahi-daemon avahi-utils >/dev/null
+sudo apt-get install -y jq git ansible avahi-daemon avahi-utils >/dev/null
+
 
 # enable services
 sudo systemctl enable --now tailscaled avahi-daemon
