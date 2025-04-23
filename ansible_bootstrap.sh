@@ -49,6 +49,15 @@ fi
 # ── Deploy inventory helper ─────────────────────────────────────
 sudo install -m 0755 "$CLONE_DIR/generate_inventory.sh" /usr/local/bin/
 
+
+# ── Disable host-key prompt for all Ansible runs ────────────────
+echo "▶ Creating ~/.ansible.cfg (host_key_checking = False)…"
+cat > "$HOME/.ansible.cfg" <<'EOF'
+[defaults]
+host_key_checking = False
+EOF
+chmod 600 "$HOME/.ansible.cfg"
+
 echo "✓ Bootstrap complete on $HOSTNAME"
 echo "  Next steps:"
 echo "    1) generate_inventory.sh            # build ~/hosts.yml"
