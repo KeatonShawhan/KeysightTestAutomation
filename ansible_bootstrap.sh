@@ -1,102 +1,76 @@
 #!/usr/bin/env bash
-#
-# ansible_bootstrap.sh
-# --------------------
-# One‑time setup for every “farmslug” Raspberry Pi.
-#
-# • installs Avahi (mDNS), Git, Ansible
-# • ensures avahi‑daemon auto‑starts every boot
-# • generates ~/.ssh/id_ed25519 if missing
-# • clones *public* repo that holds:
-#       – scenario scripts / playbooks
-#       – host_keys.txt            (hostname  pubkey)
-#       – generate_inventory.sh
-# • appends this Pi’s pubkey to host_keys.txt (if new) and pushes
-#   ─ requires that this Pi’s **public** key has first been added
-#     to the repo as a *write‑enabled* deploy key
-# • installs generate_inventory.sh into /usr/local/bin so it can be
-#   called from anywhere before running playbooks
-
+# ansible_bootstrap.sh  –  prompt for Tailscale auth-key first time
 set -euo pipefail
 
-REPO_URL="git@github.com:KeatonShawhan/KeysightTestAutomation.git"   # <-- change org/repo
-CLONE_DIR="$HOME/KeysightTestAutomation"              # where scripts live after clone
-KEY_FILE="host_keys.txt"                     # inside the repo
+# ---- CONFIG ---------------------------------------------------------
+REPO_URL="git@github.com:<ORG>/<REPO>.git"   # CHANGE to your repo
+CLONE_DIR="$HOME/farmslug-repo"
+KEY_FILE="host_keys.txt"
+# --------------------------------------------------------------------
 
-echo "▶ Installing Avahi, Git, Ansible…"
+echo "▶ Installing core packages (tailscale, ansible, git, avahi)…"
 sudo apt-get update -qq
-sudo apt-get install -y avahi-daemon avahi-utils git ansible >/dev/null
+sudo apt-get install -y tailscale jq git ansible avahi-daemon avahi-utils >/dev/null
 
-echo "▶ Enabling Avahi mDNS service…"
-/usr/bin/sudo systemctl enable --now avahi-daemon
+echo "▶ Enabling required services..."
+sudo systemctl enable --now avahi-daemon tailscaled
 
-echo "▶ Generating SSH key if absent…"
+# -------- SSH key for Git + Ansible control -------------------------
 if [[ ! -f "$HOME/.ssh/id_ed25519" ]]; then
+  echo "▶ Generating SSH key…"
   ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519"
 fi
 PUBKEY=$(<"$HOME/.ssh/id_ed25519.pub")
 HOSTNAME=$(hostname)
 
-echo "▶ Cloning (or pulling) $REPO_URL …"
+# -------- Clone or pull repo ----------------------------------------
 if [[ -d "$CLONE_DIR/.git" ]]; then
   git -C "$CLONE_DIR" pull --quiet
 else
-  # Use the Pi's own key for auth; disable host‑key checking for first clone
-  GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' \
-    git clone --quiet "$REPO_URL" "$CLONE_DIR" || {
-      cat <<EOF
-❌ Clone failed.  This Pi's SSH key probably isn't a write‑deploy key yet.
+  echo "▶ Cloning repo $REPO_URL …"
+  if ! git clone --quiet "$REPO_URL" "$CLONE_DIR"; then
+    cat <<EOF
+❌  Clone failed.  Add this PUBLIC key as a write-enabled deploy key
+    in the repo, then rerun this script.
 
-Add the following PUBLIC key to the GitHub repo as a **Deploy key
-with write access**, then re‑run ansible_bootstrap.sh:
-
-  Host : $HOSTNAME
-  Key  : $PUBKEY
+$PUBKEY
 EOF
-      exit 1
-    }
+    exit 1
+  fi
 fi
 
 cd "$CLONE_DIR"
 
-# ensure per‑repo author
-if ! git config --get user.email >/dev/null; then
-  git config user.email "${HOSTNAME}@farmslug.local"
-  git config user.name  "${HOSTNAME}"
-fi
+# configure local author identity (once per clone)
+git config user.name  "${HOSTNAME}"      || true
+git config user.email "${HOSTNAME}@farmslug.local" || true
 
-echo "▶ Updating host_keys.txt if necessary…"
+# -------- Update host_keys.txt & push -------------------------------
 if ! grep -q "^${HOSTNAME}[[:space:]]" "$KEY_FILE" 2>/dev/null; then
+  echo "▶ Appending this host to $KEY_FILE and pushing…"
   echo "${HOSTNAME}  ${PUBKEY}" >> "$KEY_FILE"
   git add "$KEY_FILE"
   git commit -m "add key for $HOSTNAME" --quiet
-
-  # 1 pull --rebase to integrate any peer’s change
-  git pull --rebase --quiet || {
-      echo "❌ git pull --rebase failed; please resolve manually."
-      exit 1
-  }
-
-  # 2 push (set upstream if this is the first push from this clone)
-  if ! git push --quiet 2>/dev/null; then
-      git push -u origin "$(git symbolic-ref --short HEAD)" || {
-        echo "❌ git push failed — check deploy‑key permission or conflicts."
-        exit 1
-      }
+  git pull --rebase --quiet || { echo "❌ git pull failed; fix manually."; exit 1; }
+  if ! git push 2>/dev/null; then
+    echo "❌ git push failed.  Make sure this key is a WRITE deploy key in GitHub."
+    exit 1
   fi
-else
-  echo "  entry already present — nothing to commit."
 fi
 
+# -------- Tailscale --------------------------------------------------
+if ! tailscale status --peers=false >/dev/null 2>&1; then
+  echo "▶ This Pi is not in the tailnet yet."
+  read -rp "Enter your reusable Tailscale auth-key: " TS_AUTH_KEY
+  sudo tailscale up --authkey "$TS_AUTH_KEY" \
+        --hostname "$HOSTNAME" --ssh --accept-routes
+else
+  echo "▶ Tailscale already connected."
+fi
 
-echo "▶ Installing generate_inventory.sh to /usr/local/bin …"
-/usr/bin/sudo install -m 0755 "$CLONE_DIR/generate_inventory.sh" /usr/local/bin/
+echo "▶ Installing generate_inventory.sh…"
+sudo install -m 0755 "$CLONE_DIR/generate_inventory.sh" /usr/local/bin/
 
-echo "✓ Bootstrap completed on $HOSTNAME"
-echo "  Repo cloned to: $CLONE_DIR"
-echo "  Next steps:"
-echo "    1) cd $CLONE_DIR  &&  git pull   # when you need fresh scripts"
-echo "    2) generate_inventory.sh          # create ~/hosts.yml"
-echo "    3) ansible-playbook -i ~/hosts.yml push_my_pubkey.yml --ask-pass   # first time"
-echo "    4) ansible-playbook -i ~/hosts.yml <your_playbook>.yml            # thereafter"
+echo "✓ Bootstrap complete on $HOSTNAME"
+echo "   Run: generate_inventory.sh && ansible-playbook …"
 
