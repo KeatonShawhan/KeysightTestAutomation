@@ -36,6 +36,16 @@ else
 fi
 
 HOSTNAME=$(hostname)
+# self-SSH enable
+# ensure SSH key exists
+if [[ ! -f "$HOME/.ssh/id_ed25519" ]]; then
+  ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519"
+fi
+
+AUTH="$HOME/.ssh/authorized_keys"
+mkdir -p ~/.ssh && touch "$AUTH" && chmod 600 "$AUTH"
+grep -qxF "$(cat ~/.ssh/id_ed25519.pub)" "$AUTH" || \
+  cat ~/.ssh/id_ed25519.pub >> "$AUTH"
 
 # ── Tailscale join or tag update ────────────────────────────────
 if ! tailscale status --peers=false >/dev/null 2>&1; then
@@ -55,6 +65,24 @@ else
     echo "▶ Tailscale already connected with tag:farmslug."
   fi
 fi
+
+# ── Keep DHCP client from overwriting /etc/resolv.conf ──────────
+if ! grep -q '^nohook resolv.conf' /etc/dhcpcd.conf 2>/dev/null; then
+  echo "▶ Writing 'nohook resolv.conf' to /etc/dhcpcd.conf ..."
+  echo 'nohook resolv.conf' | sudo tee -a /etc/dhcpcd.conf >/dev/null
+fi
+
+echo "▶ Restarting network manager so Tailscale can rewrite resolv.conf ..."
+if systemctl list-unit-files | grep -q '^dhcpcd.service'; then
+  sudo systemctl restart dhcpcd
+elif systemctl list-unit-files | grep -q '^NetworkManager.service'; then
+  sudo systemctl restart NetworkManager
+else
+  echo "⚠  Neither dhcpcd nor NetworkManager found; skipping restart."
+fi
+
+# Re-apply DNS settings (safe even if already up)
+sudo tailscale set --accept-dns=true
 
 # ── Deploy inventory helper ─────────────────────────────────────
 sudo install -m 0755 "$CLONE_DIR/generate_inventory.sh" /usr/local/bin/
