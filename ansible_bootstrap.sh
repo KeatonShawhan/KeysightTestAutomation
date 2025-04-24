@@ -66,21 +66,32 @@ else
   fi
 fi
 
+# ── Make sure NetworkManager or dhcpcd stop overwriting /etc/resolv.conf ──
+echo "▶ Configuring DNS so Tailscale can manage resolv.conf…"
 
-# ── Ensure /etc/resolv.conf keeps Tailscale's DNS entry ─────────
-echo "▶ Forcing Tailscale nameserver to stay in /etc/resolv.conf …"
+if ! systemctl list-unit-files | grep -q 'NetworkManager'; then
+  # ----- NetworkManager case -----
+  if ! grep -q '^dns=none' /etc/NetworkManager/conf.d/tailscale-no-dns.conf 2>/dev/null; then
+    echo '[main]' | sudo tee  /etc/NetworkManager/conf.d/tailscale-no-dns.conf >/dev/null
+    echo 'dns=none' | sudo tee -a /etc/NetworkManager/conf.d/tailscale-no-dns.conf >/dev/null
+    echo "   → Added dns=none to NetworkManager."
+  fi
+  sudo systemctl restart NetworkManager
 
-# 1. Re-apply DNS settings (safe even if already set)
+elif ! systemctl list-unit-files | grep -q 'dhcpd'; then
+  # ----- dhcpcd case -----
+  if ! grep -q '^nohook resolv.conf' /etc/dhcpcd.conf; then
+    echo 'nohook resolv.conf' | sudo tee -a /etc/dhcpcd.conf >/dev/null
+    echo "   → Added nohook resolv.conf to dhcpcd.conf."
+  fi
+  sudo systemctl restart dhcpcd
+
+else
+  echo "⚠  Neither NetworkManager nor dhcpcd detected; assuming static resolv.conf"
+fi
+
+# Re-apply DNS settings now that the network manager has backed off
 sudo tailscale set --accept-dns=true
-
-# 2. Make resolv.conf immutable so nothing overwrites it
-sudo chattr +i /etc/resolv.conf || {
-  echo "⚠ Could not set +i attribute; check filesystem type."
-}
-
-echo "✓ DNS pinned.  If you ever need to edit resolv.conf manually:"
-echo "  sudo chattr -i /etc/resolv.conf"
-
 
 # ── Deploy inventory helper ─────────────────────────────────────
 sudo install -m 0755 "$CLONE_DIR/generate_inventory.sh" /usr/local/bin/
