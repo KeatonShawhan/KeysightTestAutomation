@@ -66,32 +66,21 @@ else
   fi
 fi
 
-# ── Make sure NetworkManager or dhcpcd stop overwriting /etc/resolv.conf ──
-echo "▶ Configuring DNS so Tailscale can manage resolv.conf…"
+# ── Keep NetworkManager from overwriting /etc/resolv.conf ──
+echo "▶ Telling NetworkManager to leave resolv.conf to Tailscale…"
+sudo mkdir -p /etc/NetworkManager/conf.d
+sudo tee /etc/NetworkManager/conf.d/99-tailscale-dns.conf >/dev/null <<'NM'
+[main]
+dns=none               # NM stops editing /etc/resolv.conf
+NM
 
-if ! systemctl list-unit-files | grep -q 'NetworkManager'; then
-  # ----- NetworkManager case -----
-  if ! grep -q '^dns=none' /etc/NetworkManager/conf.d/tailscale-no-dns.conf 2>/dev/null; then
-    echo '[main]' | sudo tee  /etc/NetworkManager/conf.d/tailscale-no-dns.conf >/dev/null
-    echo 'dns=none' | sudo tee -a /etc/NetworkManager/conf.d/tailscale-no-dns.conf >/dev/null
-    echo "   → Added dns=none to NetworkManager."
-  fi
-  sudo systemctl restart NetworkManager
+# restart NetworkManager so the new setting takes effect
+sudo systemctl restart NetworkManager
 
-elif ! systemctl list-unit-files | grep -q 'dhcpd'; then
-  # ----- dhcpcd case -----
-  if ! grep -q '^nohook resolv.conf' /etc/dhcpcd.conf; then
-    echo 'nohook resolv.conf' | sudo tee -a /etc/dhcpcd.conf >/dev/null
-    echo "   → Added nohook resolv.conf to dhcpcd.conf."
-  fi
-  sudo systemctl restart dhcpcd
-
-else
-  echo "⚠  Neither NetworkManager nor dhcpcd detected; assuming static resolv.conf"
-fi
-
-# Re-apply DNS settings now that the network manager has backed off
+# ask tailscaled to (re)write its DNS lines into resolv.conf
 sudo tailscale set --accept-dns=true
+echo "   ✓ NetworkManager no longer overwrites resolv.conf; MagicDNS active."
+
 
 # ── Deploy inventory helper ─────────────────────────────────────
 sudo install -m 0755 "$CLONE_DIR/generate_inventory.sh" /usr/local/bin/
