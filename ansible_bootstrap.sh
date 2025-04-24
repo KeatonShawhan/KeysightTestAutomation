@@ -66,23 +66,21 @@ else
   fi
 fi
 
-# ── Keep DHCP client from overwriting /etc/resolv.conf ──────────
-if ! grep -q '^nohook resolv.conf' /etc/dhcpcd.conf 2>/dev/null; then
-  echo "▶ Writing 'nohook resolv.conf' to /etc/dhcpcd.conf ..."
-  echo 'nohook resolv.conf' | sudo tee -a /etc/dhcpcd.conf >/dev/null
-fi
 
-echo "▶ Restarting network manager so Tailscale can rewrite resolv.conf ..."
-if systemctl list-unit-files | grep -q '^dhcpcd.service'; then
-  sudo systemctl restart dhcpcd
-elif systemctl list-unit-files | grep -q '^NetworkManager.service'; then
-  sudo systemctl restart NetworkManager
-else
-  echo "⚠  Neither dhcpcd nor NetworkManager found; skipping restart."
-fi
+# ── Ensure /etc/resolv.conf keeps Tailscale's DNS entry ─────────
+echo "▶ Forcing Tailscale nameserver to stay in /etc/resolv.conf …"
 
-# Re-apply DNS settings (safe even if already up)
+# 1. Re-apply DNS settings (safe even if already set)
 sudo tailscale set --accept-dns=true
+
+# 2. Make resolv.conf immutable so nothing overwrites it
+sudo chattr +i /etc/resolv.conf || {
+  echo "⚠ Could not set +i attribute; check filesystem type."
+}
+
+echo "✓ DNS pinned.  If you ever need to edit resolv.conf manually:"
+echo "  sudo chattr -i /etc/resolv.conf"
+
 
 # ── Deploy inventory helper ─────────────────────────────────────
 sudo install -m 0755 "$CLONE_DIR/generate_inventory.sh" /usr/local/bin/
