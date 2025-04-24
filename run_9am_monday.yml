@@ -34,20 +34,19 @@
   # ------------------------------------------------------------------
   # Pull a host-level summary from the newest metrics folder
   # ------------------------------------------------------------------
+
   - name: Compute per-host summary (fastest / slowest / avg runtime)
-    ansible.builtin.shell: |
-      set -e
-      metrics_root="{{ repo_dir }}/metrics"
-      latest=$(ls -1td "$metrics_root"/* | head -1)
-      # grab all runtime numbers
-      awk -F',' '
-        /runtime=/{
-          split($0,a,"runtime="); print a[2]
-        }' "$latest"/*_metrics.log \
-      | awk '
-          {sum+=$1; n++; if(min==\"\"||$1<min){min=$1} if($1>max){max=$1}}
-          END{printf \"%s,%s,%s\", min, max, sum/n}
-        '
+    shell: |
+      metrics_root="$HOME/KeysightTestAutomation/metrics"
+      latest="$(ls -1td "$metrics_root"/* 2>/dev/null | head -1)"
+      if [ -z "$latest" ]; then
+        printf "0,0,0" && exit 0
+      fi
+      awk -F',' '/runtime=/{split($0,a,"runtime="); sum+=a[2]; c++; \
+                   if(min==""||a[2]<min){min=a[2]} \
+                   if(a[2]>max){max=a[2]}} \
+                   END{printf "%s,%s,%s", min,max,(c?sum/c:0)}' \
+          "$latest"/*_metrics.log
     register: host_summary
     changed_when: false
 
@@ -66,29 +65,37 @@
     ansible.builtin.set_fact:
       all_summaries: "{{ all_summaries | default({}) | combine( {inventory_hostname: summary_parsed} ) }}"
     delegate_to: localhost
+    delegate_facts: true
     run_once: false
 
-# --------------------------------------------------------------------
-# Controller-side aggregation / pretty print
-# --------------------------------------------------------------------
+# ------------------------------------------------------------------
+# Controller-side: pretty-print the per-host metrics
+# ------------------------------------------------------------------
 - name: Aggregate & display results
   hosts: localhost
   gather_facts: no
-  vars:
-    all_summaries: "{{ hostvars['localhost'].all_summaries }}"
   tasks:
-    - name: Print per-host summary table
-      ansible.builtin.debug:
-        msg: |
-          {% set hdr = "%-15s %10s %10s %10s" %}
-          {{ hdr % ("HOST","FASTEST","SLOWEST","AVERAGE") }}
-          {{ "-"*50 }}
-          {% for host,vals in all_summaries.items()|sort %}
-            {{ hdr %
-              (host,
-               ("%0.3f" % vals.fastest),
-               ("%0.3f" % vals.slowest),
-               ("%0.3f" % vals.average)) }}
-          {% endfor %}
+    # Build list of formatted lines
+    - name: Assemble summary table
+      set_fact:
+        table_lines: >-
+          {{
+            ["HOST               FASTEST    SLOWEST    AVERAGE",
+             "--------------------------------------------------"] +
+            ( groups['all'] | sort
+              | selectattr('summary_parsed', 'defined', hostvars)
+              | map('extract', hostvars)
+              | map('regex_replace', '(.*)',
+                  '%-18s %10.3f %10.3f %10.3f' % (
+                    item.inventory_hostname,
+                    item.summary_parsed.fastest,
+                    item.summary_parsed.slowest,
+                    item.summary_parsed.average) )
+              | list )
+          }}
 
+    # Display the table (each list element prints on its own line)
+    - name: Print per-host summary table
+      debug:
+        msg: "{{ table_lines }}"
 
