@@ -92,7 +92,7 @@ EOF
     
     gnuplot <<EOF
 set terminal png size 1000,600
-set output 'cpu_cores_heatmap.png'
+set output '$charts_dir/cpu_cores_heatmap.png'
 set title 'CPU Cores Usage Heatmap'
 set xlabel 'Time (seconds from start)'
 set ylabel 'CPU Core'
