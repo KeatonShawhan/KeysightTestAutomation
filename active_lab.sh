@@ -346,6 +346,8 @@ echo "----------------------------------------------------"
 echo "[INFO] Simulation time ended and all test-plan loops are done. Stopping all runners."
 stop_all_runners
 
+generate_charts "$SESSION_FOLDER"
+
 kill_metrics "$SESSION_FOLDER"
 
 echo "----------------------------------------------------"
