@@ -292,7 +292,7 @@ fi
 
 # Create session folder
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-SESSION_FOLDER="${METRICS_ROOT}/activeLab_${RUN_TIMESTAMP}"
+SESSION_FOLDER="${METRICS_DIR}/activeLab_${RUN_TIMESTAMP}"
 mkdir -p "$SESSION_FOLDER"
 
 # Export & load metrics tooling
