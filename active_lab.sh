@@ -34,7 +34,7 @@ mkdir -p "$METRICS_DIR"
 
 # Create a timestamped folder for this run
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-SESSION_FOLDER="${METRICS_DIR}/noisyNeighbors_${RUN_TIMESTAMP}"
+SESSION_FOLDER="${METRICS_DIR}/activeLab_${RUN_TIMESTAMP}"
 mkdir -p "$SESSION_FOLDER"
 export METRICS_DIR="$SESSION_FOLDER"
 
