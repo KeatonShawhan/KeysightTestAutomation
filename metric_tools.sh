@@ -312,56 +312,68 @@ function monitor_detailed_cpu() {
   done
 }
 
-# Function to monitor CPU usage per core
+# Function to monitor CPU usage per core (using /proc/stat deltas)
 function monitor_cpu_cores() {
   local output_file="${METRICS_DIR}/cpu_cores.log"
-  local num_cores=$(grep -c ^processor /proc/cpuinfo)
-  
-  # Create header with core numbers
-  local header="timestamp"
-  for i in $(seq 0 $((num_cores-1))); do
-    header="$header,core$i"
-  done
-  
-  echo "$header" > "$output_file"
-  
-  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
-    local timestamp=$(date +%s)
-    local line="$timestamp"
-    
-    # Get per-core CPU usage with mpstat if available
-    if command -v mpstat &>/dev/null; then
-      local cores_data=$(mpstat -P ALL 1 1 | grep -E "^[0-9]+" | awk '{print 100-$NF}')
-      
-      # Skip the first line which is the average
-      local core_values=$(echo "$cores_data" | tail -n +2)
-      
-      # Append each core's usage to the line
-      while read -r usage; do
-        line="$line,$usage"
-      done <<< "$core_values"
-    else
-      # Fall back to /proc/stat if mpstat is not available
-      for i in $(seq 0 $((num_cores-1))); do
-        if [[ -f /proc/stat ]]; then
-          local core_info=$(grep "^cpu$i " /proc/stat)
-          local user=$(echo "$core_info" | awk '{print $2}')
-          local nice=$(echo "$core_info" | awk '{print $3}')
-          local system=$(echo "$core_info" | awk '{print $4}')
-          local idle=$(echo "$core_info" | awk '{print $5}')
-          local total=$((user + nice + system + idle))
-          local usage=$(echo "scale=2; 100 - ($idle * 100 / $total)" | bc)
-          line="$line,$usage"
-        else
-          line="$line,0"
-        fi
-      done
+  local num_cores
+  num_cores=$(nproc)
+
+  # build header: timestamp,core0,core1,...
+  {
+    printf 'timestamp'
+    for i in $(seq 0 $((num_cores-1))); do
+      printf ',core%s' "$i"
+    done
+    echo
+  } > "$output_file"
+
+  # read initial stats
+  declare -A prev_total prev_idle
+  while read -r line; do
+    if [[ $line =~ ^cpu([0-9]+)\  ]]; then
+      # fields: cpuN user nice system idle iowait irq softirq steal guest guest_nice
+      read -r cpu user nice system idle iowait irq softirq steal _ _ <<<"$line"
+      local total=$((user + nice + system + idle + iowait + irq + softirq + steal))
+      prev_total["${BASH_REMATCH[1]}"]=$total
+      prev_idle["${BASH_REMATCH[1]}"]=$idle
     fi
-    
-    echo "$line" >> "$output_file"
+  done < /proc/stat
+
+  # now loop
+  while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
     sleep 1
+    local timestamp
+    timestamp=$(date +%s)
+    local out_line="$timestamp"
+
+    # second snapshot & compute delta
+    while read -r line; do
+      if [[ $line =~ ^cpu([0-9]+)\  ]]; then
+        read -r cpu user nice system idle iowait irq softirq steal _ _ <<<"$line"
+        local total=$((user + nice + system + idle + iowait + irq + softirq + steal))
+        local prev_t=${prev_total["${BASH_REMATCH[1]}"]}
+        local prev_i=${prev_idle["${BASH_REMATCH[1]}"]}
+        local dtotal=$((total - prev_t))
+        local didle=$((idle - prev_i))
+        # avoid divide-by-zero
+        if (( dtotal > 0 )); then
+          # usage % = (busy delta)/(total delta)*100
+          local usage
+          usage=$(awk -v dt="$dtotal" -v di="$didle" 'BEGIN{printf "%.2f", (dt - di)/dt*100}')
+        else
+          usage="0.00"
+        fi
+        out_line+=",${usage}"
+        # store for next round
+        prev_total["${BASH_REMATCH[1]}"]=$total
+        prev_idle["${BASH_REMATCH[1]}"]=$idle
+      fi
+    done < /proc/stat
+
+    echo "$out_line" >> "$output_file"
   done
 }
+
 
 # Function to monitor detailed memory statistics
 function monitor_detailed_memory() {
