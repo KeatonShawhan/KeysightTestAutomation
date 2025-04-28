@@ -139,7 +139,7 @@ function analyze_metrics() {
   # Analyze metrics for all runners
   echo "----------------------------------------------------"
   echo "Individual Runner Performance:"
-  for i in $(seq 2 "$N"); do
+  for i in $(seq 2 "$NUM_RUNNERS"); do
     local metrics_file="${METRICS_DIR}/runner_${i}_metrics.log"
     if [[ -f "$metrics_file" ]]; then
       local runtime=$(grep -oP 'runtime=\K[0-9.]+' "$metrics_file")
@@ -182,8 +182,8 @@ function analyze_metrics() {
   done
 
   # Calculate average (excluding baseline)
-  if (( N > 1 )); then
-    local avg_runtime=$(echo "scale=4; $total_runtime / (${N} - 1)" | bc)
+  if (( NUM_RUNNERS > 1 )); then
+    local avg_runtime=$(echo "scale=4; $total_runtime / (${NUM_RUNNERS} - 1)" | bc)
     local avg_slowdown=$(echo "scale=4; ($avg_runtime / $baseline_runtime - 1) * 100" | bc)
     
     # Format with consistent precision
@@ -201,7 +201,7 @@ function analyze_metrics() {
     {
       echo "Test Plan: $TEST_PLAN"
       echo "Date: $(date)"
-      echo "Number of Runners: $N"
+      echo "Number of Runners: $NUM_RUNNERS"
       echo ""
       echo "Baseline Runtime: $baseline_runtime seconds"
       echo "Average Runtime with Noisy Neighbors: $avg_runtime seconds"

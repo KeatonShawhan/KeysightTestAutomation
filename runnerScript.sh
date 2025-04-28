@@ -247,10 +247,10 @@ function start_runners() {
       exit 1
     }
 
-    # 3) Download & install the custom Runner package
-    echo "[INFO] Downloading custom Runner tap package..."
-    curl -sSL -o custom_runner.tap_package "$RUNNER_PACKAGE_URL" || {
-      echo "[ERROR] Failed to download custom Runner from '$RUNNER_PACKAGE_URL'."
+    # 3) Copy & install the custom Runner TapPackage
+    echo "[INFO] Copying custom Runner TapPackage from local file..."
+    cp "${SCRIPT_DIR}/CustomRunner.TapPackage" custom_runner.tap_package || {
+      echo "[ERROR] Failed to copy CustomRunner.TapPackage from ${SCRIPT_DIR}."
       exit 1
     }
     echo "[INFO] Installing custom Runner TapPackage..."
@@ -259,6 +259,7 @@ function start_runners() {
       exit 1
     }
     rm custom_runner.tap_package
+
 
     # 4) Register the Runner
     echo "[INFO] Registering the Runner..."
