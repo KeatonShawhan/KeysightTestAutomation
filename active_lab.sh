@@ -272,17 +272,17 @@ echo "[INFO] Beginning simulation with $NUM_RUNNERS runners for $SIM_TIME second
 SIM_START=$(date +%s)
 DEADLINE=$((SIM_START + SIM_TIME))
 
+# spawn loops
 declare -a RUNNER_PIDS
-for runner_id in $(seq 1 "$NUM_RUNNERS"); do
-  ( runner_loop "$runner_id" "$DEADLINE" "$ABS_TEST_PLAN" "$SESSION_FOLDER" ) &
-  RUNNER_PIDS+=(\$!)
+for id in $(seq 1 "$NUM_RUNNERS"); do
+  runner_loop "$id" $(( $(date +%s)+SIM_TIME )) "$USER_PLAN" "$SESSION_FOLDER" &
+  RUNNER_PIDS+=($!)
 done
 
-# Wait for loops to finish
-for pid in "\${RUNNER_PIDS[@]}"; do
+# wait correctly
+for pid in "${RUNNER_PIDS[@]}"; do
   wait "$pid"
 done
-
 # Generate summary
 generate_summary "$SESSION_FOLDER" "$NUM_RUNNERS" "$SIM_TIME" "$ABS_TEST_PLAN"
 
