@@ -304,6 +304,8 @@ done
 
 kill_metrics "$SESSION_FOLDER"
 
+stop_all_runners
+
 echo "[INFO] Analyzing performance metrics..."
 
 # Generate the summary report
@@ -311,6 +313,8 @@ generate_summary "$TEST_PLAN" "$NUM_RUNNERS" "$baseline_runtime"
 
 # Analyze performance impact
 analyze_metrics "$SESSION_FOLDER"
+
+
 
 echo "======================================================"
 echo "          TEST COMPLETED SUCCESSFULLY                 "
