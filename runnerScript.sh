@@ -338,6 +338,9 @@ function stop_runners() {
         auto_unregister "$runner_port" || {
           echo "[WARN] auto_unregister failed or was incomplete."
         }
+        echo "[INFO] Stopping local Tap runner on port $runner_port…"
+        pgrep -f "OPENTAP_RUNNER_SERVER_PORT=${runner_port}" | \
+          xargs -r kill || echo "[WARN] no local runner to kill"
       else
         echo "[WARN] ./tap not found or not executable in $runner_folder."
       fi
