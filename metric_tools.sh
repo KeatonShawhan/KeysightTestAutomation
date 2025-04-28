@@ -26,7 +26,8 @@ set ylabel 'CPU Usage (%)'
 set datafile separator ','
 set grid
 start_time = $start_ts
-plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):2 with lines title 'CPU Usage' lw 2
+plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):2 \
+     with impulses title 'CPU Usage'
 EOF
 
 
