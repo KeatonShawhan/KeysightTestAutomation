@@ -26,8 +26,10 @@ set ylabel 'CPU Usage (%)'
 set datafile separator ','
 set grid
 start_time = $start_ts
+set yrange [0:100]
 plot '$METRICS_DIR/resource_usage.log' using (\$1-start_time):2 \
      with impulses title 'CPU Usage'
+
 EOF
 
 
