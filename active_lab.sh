@@ -28,8 +28,17 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
 
+# now set up where logs will go
 METRICS_DIR="${SCRIPT_DIR}/metrics"
-mkdir -p "${METRICS_DIR}"
+mkdir -p "$METRICS_DIR"
+
+# Create a timestamped folder for this run
+RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+SESSION_FOLDER="${METRICS_DIR}/noisyNeighbors_${RUN_TIMESTAMP}"
+mkdir -p "$SESSION_FOLDER"
+export METRICS_DIR="$SESSION_FOLDER"
+
+source "${SCRIPT_DIR}/metric_tools.sh"
 
 #############################################
 #        UTILITY & HELPER FUNCTIONS        #
@@ -74,6 +83,8 @@ initialize_runner_metrics() {
   
   # Initialize the metrics file with header
   echo "runner_id=$runner_id,runs=0,total_runtime=0.000,avg_runtime=0.000" > "$metrics_file"
+  # start the metric collecting processes
+  start_metrics "$SESSION_FOLDER"
 }
 
 # Run a test plan (.TapFile) for a single "run" event on a specific runner.
@@ -338,6 +349,8 @@ generate_summary "$SESSION_FOLDER" "$NUM_RUNNERS" "$SIM_TIME" "$ABS_TEST_PLAN"
 echo "----------------------------------------------------"
 echo "[INFO] Simulation time ended and all test-plan loops are done. Stopping all runners."
 stop_all_runners
+
+kill_metrics "$SESSION_FOLDER"
 
 echo "----------------------------------------------------"
 echo "[INFO] Done. Metrics and outputs are in: $SESSION_FOLDER"

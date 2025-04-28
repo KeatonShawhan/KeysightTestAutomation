@@ -198,7 +198,8 @@ if (( NUM_RUNNERS > MAX_RUNNERS )); then
   exit 1
 fi
 
-
+# start the metric collecting processes
+start_metrics "$SESSION_FOLDER"
 
 # 5) Stop all existing runners
 echo "[INFO] Stopping any existing runners first..."
@@ -222,9 +223,6 @@ fi
 echo "[INFO] Starting performance test with $NUM_RUNNERS runners"
 echo "[INFO] Baseline: Runner #1 running solo"
 echo "[INFO] Then: Runner #1 plus $(( NUM_RUNNERS - 1 )) concurrent runners"
-
-# start the metric collecting processes
-start_metrics "$SESSION_FOLDER"
 
 # First: Run baseline test with just Runner #1
 echo "----------------------------------------------------"
@@ -302,9 +300,9 @@ while ! $COMPLETED; do
   fi
 done
 
-kill_metrics "$SESSION_FOLDER"
-
 stop_all_runners
+
+kill_metrics "$SESSION_FOLDER"
 
 echo "[INFO] Analyzing performance metrics..."
 
