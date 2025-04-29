@@ -30,13 +30,12 @@
     until: job_status.finished
     retries: 720           # check every 10 s ⇒ 2 hours max
     delay: 10
-
   # ------------------------------------------------------------------
   # Pull a host-level summary from the newest metrics folder
   # ------------------------------------------------------------------
 
   - name: Compute per-host summary (fastest / slowest / avg runtime)
-    shell: |
+    ansible.builtin.shell: |
       metrics_root="$HOME/KeysightTestAutomation/metrics"
       latest="$(ls -1td "$metrics_root"/* 2>/dev/null | head -1)"
       if [ -z "$latest" ]; then
@@ -50,52 +49,16 @@
     register: host_summary
     changed_when: false
 
-  - name: Set host fact with parsed numbers
+  - name: Save numbers as a fact on THIS host
     ansible.builtin.set_fact:
-      summary_parsed: |
-        {{
-          {
-            "fastest" : host_summary.stdout.split(",")[0]|float,
-            "slowest" : host_summary.stdout.split(",")[1]|float,
-            "average" : host_summary.stdout.split(",")[2]|float
-          }
-        }}
+      script_runtimes:
+        fastest: "{{ host_summary.stdout.split(',')[0] | float }}"
+        slowest: "{{ host_summary.stdout.split(',')[1] | float }}"
+        average: "{{ host_summary.stdout.split(',')[2] | float }}"
 
-  - name: Pass summary up to controller
-    ansible.builtin.set_fact:
-      all_summaries: "{{ all_summaries | default({}) | combine( {inventory_hostname: summary_parsed} ) }}"
-    delegate_to: localhost
-    delegate_facts: true
-    run_once: false
-
-# ------------------------------------------------------------------
-# Controller-side: pretty-print the per-host metrics
-# ------------------------------------------------------------------
-- name: Aggregate & display results
-  hosts: localhost
-  gather_facts: no
-  tasks:
-    # Build list of formatted lines
-    - name: Assemble summary table
-      set_fact:
-        table_lines: >-
-          {{
-            ["HOST               FASTEST    SLOWEST    AVERAGE",
-             "--------------------------------------------------"] +
-            ( groups['all'] | sort
-              | selectattr('summary_parsed', 'defined', hostvars)
-              | map('extract', hostvars)
-              | map('regex_replace', '(.*)',
-                  '%-18s %10.3f %10.3f %10.3f' % (
-                    item.inventory_hostname,
-                    item.summary_parsed.fastest,
-                    item.summary_parsed.slowest,
-                    item.summary_parsed.average) )
-              | list )
-          }}
-
-    # Display the table (each list element prints on its own line)
-    - name: Print per-host summary table
-      debug:
-        msg: "{{ table_lines }}"
-
+  # ------------------------------------------------------------------
+  # Just echo what this host stored (one line per host)
+  # ------------------------------------------------------------------
+  - name: Show raw summary_parsed on this host
+    debug:
+      var: script_runtimes
