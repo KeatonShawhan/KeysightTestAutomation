@@ -139,10 +139,17 @@ else
   exit 1
 fi
 
-# 4) Create a dated folder for logs/metrics
+# Create session folder
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-SESSION_FOLDER="${METRICS_DIR}/${RUN_TIMESTAMP}"
+SESSION_FOLDER="${METRICS_DIR}/activeLab_${RUN_TIMESTAMP}"
 mkdir -p "$SESSION_FOLDER"
+
+# Export & load metrics tooling
+export METRICS_DIR="$SESSION_FOLDER"
+source "${SCRIPT_DIR}/metric_tools.sh"
+
+# start metrics
+start_metrics "$SESSION_FOLDER"
 
 echo "----------------------------------------------------"
 echo "[INFO] 9AM Monday scenario. Logs in: $SESSION_FOLDER"
@@ -278,6 +285,10 @@ echo "[INFO] All wave-based test runs have completed."
 echo "----------------------------------------------------"
 echo "[INFO] Tearing down all runners..."
 stop_all_runners
+
+generate_charts "$SESSION_FOLDER"
+
+kill_metrics "$SESSION_FOLDER"
 
 echo "[INFO] Scenario complete! Logs and metrics in: $SESSION_FOLDER"
 
