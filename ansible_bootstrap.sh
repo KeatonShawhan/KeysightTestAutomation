@@ -27,13 +27,22 @@ sudo systemctl enable --now tailscaled avahi-daemon
 echo "▶ Installing other runner prerequisites (expect, unzip, iproute2)…"
 sudo apt-get install -y expect unzip iproute2 curl >/dev/null
 
-echo "▶ Ensuring dotnet executable is on the global PATH…"
+# ── Ensure dotnet CLI is present ────────────────────────────────
+if ! command -v dotnet >/dev/null 2>&1; then
+  echo "▶ dotnet not found — installing with Microsoft script …"
+  wget -q https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh
+  chmod +x /tmp/dotnet-install.sh
+  /tmp/dotnet-install.sh --channel LTS --install-dir "$HOME/.dotnet"
+else
+  echo "▶ dotnet already present."
+fi
+
+# put dotnet on the global PATH for non‑login shells (Ansible, cron, etc.)
 DOTNET_BIN="$HOME/.dotnet/dotnet"
 if [[ -x "$DOTNET_BIN" ]]; then
   sudo ln -sf "$DOTNET_BIN" /usr/local/bin/dotnet
-else
-  echo "⚠ dotnet not found in $DOTNET_BIN; skipping symlink."
 fi
+
 
 HOSTNAME=$(hostname)
 # self-SSH enable
