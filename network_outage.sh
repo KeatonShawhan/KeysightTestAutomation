@@ -133,10 +133,19 @@ else
   exit 1
 fi
 
+
+
 # Metrics session folder
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-SESSION_FOLDER="${METRICS_DIR}/network_outage_${RUN_TIMESTAMP}"
+SESSION_FOLDER="${METRICS_DIR}/networkOutage_${RUN_TIMESTAMP}"
 mkdir -p "$SESSION_FOLDER"
+
+# Export & load metrics tooling
+export METRICS_DIR="$SESSION_FOLDER"
+source "${SCRIPT_DIR}/metric_tools.sh"
+
+# start the metric collection
+start_metrics "$SESSION_FOLDER"
 
 echo "[INFO] Stopping any existing runners..."
 stop_all_runners
@@ -179,6 +188,10 @@ for pid in "${PIDS[@]}"; do wait "$pid"; done
 # Tear down runners after post-outage
 echo "[INFO] Stopping all runners after post-outage run."
 stop_all_runners
+
+generate_charts "$SESSION_FOLDER"
+
+kill_metrics "$SESSION_FOLDER"
 
 echo "----------------------------------------------------"
 echo "[INFO] Simulation complete. Logs in: $SESSION_FOLDER"
