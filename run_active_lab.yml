@@ -1,0 +1,79 @@
+---
+- name: Run “Active Lab” scenario on all farmslug Pis
+  hosts: all
+  gather_facts: no
+  vars:
+    # ── tunables ────────────────────────────────────────────────────
+    runners:            3                # how many OpenTAP runners to spin up
+    simulation_time:    300              # seconds the lab stays active
+    test_plan:          /home/pi/Baseline.TapPlan
+    reg_token:          CHANGE_ME
+    repo_dir:           ~/KeysightTestAutomation
+    script:             active_lab.sh
+  tasks:
+  # ------------------------------------------------------------------
+  # 1. make sure code is current
+  # ------------------------------------------------------------------
+  - name: Ensure repo is up-to-date (git pull)
+    ansible.builtin.shell: git -C {{ repo_dir }} pull --quiet
+    changed_when: false
+
+  # ------------------------------------------------------------------
+  # 2. kick off active_lab.sh asynchronously (so we don’t block forks)
+  # ------------------------------------------------------------------
+  - name: Run the Active Lab script
+    ansible.builtin.shell: |
+      cd {{ repo_dir }}
+      ./{{ script }} {{ runners }} {{ simulation_time }} {{ test_plan }} {{ reg_token }}
+    async:  10800        # allow up to 3 h
+    poll:   0
+    register: job
+
+  - name: Wait for script to finish
+    ansible.builtin.async_status:
+      jid: "{{ job.ansible_job_id }}"
+    register: job_status
+    until: job_status.finished
+    retries: 1080        # check every 10 s → 3 h max
+    delay:   10
+
+  # ------------------------------------------------------------------
+  # 3. pull a per-host summary from the newest Active Lab metrics folder
+  # ------------------------------------------------------------------
+  - name: Compute per-host summary (fastest / slowest / avg runner-average)
+    ansible.builtin.shell: |
+      metrics_root="$HOME/KeysightTestAutomation/metrics"
+      latest="$(ls -1td "$metrics_root"/activeLab_* 2>/dev/null | head -1)"
+
+      # if nothing found, return zeros
+      if [ -z "$latest" ]; then
+        printf "0,0,0" && exit 0
+      fi
+
+      awk -F',' '
+        /avg_runtime=/ {
+          for (i = 1; i <= NF; i++)
+            if ($i ~ /avg_runtime=/) { split($i,a,"="); avg=a[2] }
+          sum += avg; c++
+          if (min=="" || avg < min) min = avg
+          if (avg > max)            max = avg
+        }
+        END { printf "%s,%s,%s", min, max, (c ? sum/c : 0) }
+      ' "$latest"/runner_*_metrics.log
+    register: host_summary
+    changed_when: false
+
+  - name: Save numbers as a fact on THIS host
+    ansible.builtin.set_fact:
+      active_lab_runtimes:
+        fastest: "{{ host_summary.stdout.split(',')[0] | float }}"
+        slowest: "{{ host_summary.stdout.split(',')[1] | float }}"
+        average: "{{ host_summary.stdout.split(',')[2] | float }}"
+
+  # ------------------------------------------------------------------
+  # 4. show what we captured for this host
+  # ------------------------------------------------------------------
+  - name: Show raw active_lab_runtimes on this host
+    debug:
+      var: active_lab_runtimes
+
