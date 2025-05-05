@@ -251,50 +251,68 @@ function monitor_resources() {
   echo "timestamp,cpu_percent,memory_kb,disk_io_read_kb,disk_io_write_kb,network_rx_bytes,network_tx_bytes,load_avg" \
     > "$output_file"
 
-  # Read the very first CPU counters
+  # Read initial CPU counters
   read prev_total prev_idle < <(
     awk '/^cpu / {
-      idle=$5;
-      total=$2+$3+$4+$5+$6+$7+$8+$9;
+      idle=$5
+      total=$2+$3+$4+$5+$6+$7+$8+$9
       print total, idle
     }' /proc/stat
   )
 
   while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
     sleep 1
-
-    # Timestamp
     local timestamp=$(date +%s)
 
     # Read new CPU counters
     local total idle dtotal didle cpu_pct
     read total idle < <(
       awk '/^cpu / {
-        idle=$5;
-        total=$2+$3+$4+$5+$6+$7+$8+$9;
+        idle=$5
+        total=$2+$3+$4+$5+$6+$7+$8+$9
         print total, idle
       }' /proc/stat
     )
 
     # Compute deltas
-    dtotal=$(( total  - prev_total ))
-    didle =$(( idle   - prev_idle  ))
+    dtotal=$(( total - prev_total ))
+    didle=$(( idle - prev_idle ))
     prev_total=$total
-    prev_idle =$idle
+    prev_idle=$idle
 
-    # Avoid division by zero
     if (( dtotal > 0 )); then
       cpu_pct=$(awk -v dt="$dtotal" -v di="$didle" \
-        'BEGIN { printf "%.2f", (dt - di)/dt * 100 }'
+        'BEGIN { printf "%.2f", (dt - di) / dt * 100 }'
       )
     else
       cpu_pct="0.00"
     fi
 
-    # (rest of your stats — memory, I/O, network, loadavg — unchanged)
-    local memory_kb=$(awk '/MemTotal:/ {t=$2} /MemAvailable:/ {a=$2} END {print t - a}' /proc/meminfo)
-    # … disk, network, loadavg as before …
+    # Memory usage (unique)
+    local memory_kb
+    memory_kb=$(awk '/MemTotal:/ {t=$2} /MemAvailable:/ {a=$2} END {print t - a}' /proc/meminfo)
 
+    # Disk I/O (read/write in KB)
+    local disk_read disk_write
+    if command -v iostat &>/dev/null; then
+      read disk_read disk_write < <(
+        iostat -d -k 1 2 | tail -n 2 | head -n 1 | awk '{print $3, $4}'
+      )
+    else
+      disk_read=0; disk_write=0
+    fi
+
+    # Network traffic (cumulative RX/TX in bytes)
+    local net_rx net_tx
+    read net_rx net_tx < <(
+      awk '/:/ && $1!="lo:" {rx+=$2; tx+=$10} END {print rx, tx}' /proc/net/dev
+    )
+
+    # Load average (1-minute)
+    local load_avg
+    load_avg=$(cut -d ' ' -f1 /proc/loadavg)
+
+    # Write the snapshot
     echo "$timestamp,$cpu_pct,$memory_kb,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" \
       >> "$output_file"
   done
