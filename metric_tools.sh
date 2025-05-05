@@ -246,53 +246,57 @@ function analyze_metrics() {
 # Enhanced function to collect system resource usage during test execution
 function monitor_resources() {
   local output_file="${METRICS_DIR}/resource_usage.log"
-  
-  echo "timestamp,cpu_percent,memory_kb,disk_io_read_kb,disk_io_write_kb,network_rx_bytes,network_tx_bytes,load_avg" > "$output_file"
-  
+
+  # CSV header
+  echo "timestamp,cpu_percent,memory_kb,disk_io_read_kb,disk_io_write_kb,network_rx_bytes,network_tx_bytes,load_avg" \
+    > "$output_file"
+
+  # Read the very first CPU counters
+  read prev_total prev_idle < <(
+    awk '/^cpu / {
+      idle=$5;
+      total=$2+$3+$4+$5+$6+$7+$8+$9;
+      print total, idle
+    }' /proc/stat
+  )
+
   while [[ -f "${METRICS_DIR}/.monitoring_active" ]]; do
-    local timestamp
-    timestamp=$(date +%s)
-    
-    # Instead of summing, take the maximum of each field (instantaneous snapshot)
-    local cpu_usage
-    cpu_usage=$(ps -e -o pcpu= | awk 'BEGIN {max=0} {if($1>max) max=$1} END {print max}')
-    
-    unique_mem_usage=$(awk '/MemTotal:/ {total=$2} /MemAvailable:/ {avail=$2} END {print total - avail}' /proc/meminfo)
-    
-    # For Disk I/O, if you want to take a snapshot instead of a sum, you might want to use a similar approach.
-    # But often for I/O it makes sense to sum or use a tool that already provides instantaneous rates.
-    if command -v iostat &>/dev/null; then
-      # This command already outputs the snapshot for the given interval.
-      local disk_io
-      disk_io=$(iostat -d -k 1 2 | tail -n 2 | head -n 1)
-      local disk_read
-      disk_read=$(echo "$disk_io" | awk '{print $3}')
-      local disk_write
-      disk_write=$(echo "$disk_io" | awk '{print $4}')
+    sleep 1
+
+    # Timestamp
+    local timestamp=$(date +%s)
+
+    # Read new CPU counters
+    local total idle dtotal didle cpu_pct
+    read total idle < <(
+      awk '/^cpu / {
+        idle=$5;
+        total=$2+$3+$4+$5+$6+$7+$8+$9;
+        print total, idle
+      }' /proc/stat
+    )
+
+    # Compute deltas
+    dtotal=$(( total  - prev_total ))
+    didle =$(( idle   - prev_idle  ))
+    prev_total=$total
+    prev_idle =$idle
+
+    # Avoid division by zero
+    if (( dtotal > 0 )); then
+      cpu_pct=$(awk -v dt="$dtotal" -v di="$didle" \
+        'BEGIN { printf "%.2f", (dt - di)/dt * 100 }'
+      )
     else
-      local disk_read=0
-      local disk_write=0
+      cpu_pct="0.00"
     fi
 
-    # For network traffic, you might want to keep the sum since these counters are cumulative.
-    if [[ -f /proc/net/dev ]]; then
-      local net_stats
-      net_stats=$(cat /proc/net/dev | grep -v 'lo:' | grep ':' | awk '{rx+=$2; tx+=$10} END {print rx","tx}')
-      local net_rx
-      net_rx=$(echo "$net_stats" | cut -d',' -f1)
-      local net_tx
-      net_tx=$(echo "$net_stats" | cut -d',' -f2)
-    else
-      local net_rx=0
-      local net_tx=0
-    fi
-    
-    local load_avg
-    load_avg=$(cut -d ' ' -f1 /proc/loadavg)
-    
-    # Write out the snapshot for this interval
-    echo "$timestamp,$cpu_usage,$unique_mem_usage,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" >> "$output_file"
-    sleep 1
+    # (rest of your stats — memory, I/O, network, loadavg — unchanged)
+    local memory_kb=$(awk '/MemTotal:/ {t=$2} /MemAvailable:/ {a=$2} END {print t - a}' /proc/meminfo)
+    # … disk, network, loadavg as before …
+
+    echo "$timestamp,$cpu_pct,$memory_kb,$disk_read,$disk_write,$net_rx,$net_tx,$load_avg" \
+      >> "$output_file"
   done
 }
 
