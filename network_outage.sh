@@ -109,6 +109,20 @@ stop_all_runners() {
   fi
 }
 
+# Pause all Tap‐runner processes
+pause_runners() {
+  echo "[INFO] Pausing all runner processes…"
+  # adjust the pattern if needed
+  pgrep -f "tap runner start" | xargs -r kill -STOP
+}
+
+# Resume them
+resume_runners() {
+  echo "[INFO] Resuming all runner processes…"
+  pgrep -f "tap runner start" | xargs -r kill -CONT
+}
+
+
 #############################################
 #              MAIN SCRIPT LOGIC           #
 #############################################
@@ -165,13 +179,13 @@ done
 for pid in "${PIDS[@]}"; do wait "$pid"; done
 
 # Simulate outage
-echo "[INFO] Simulating network outage by stopping runners for $OUTAGE_DURATION seconds..."
-stop_all_runners
+echo "[INFO] Simulating network outage: pausing runners for $OUTAGE_DURATION seconds..."
+pause_runners
 sleep "$OUTAGE_DURATION"
 
-# Reconnect phase
-echo "[INFO] Reconnecting: restarting all runners..."
-"$RUNNER_SCRIPT" start "$NUM_RUNNERS" "$REG_TOKEN"
+echo "[INFO] Network restored: resuming runners"
+resume_runners
+
 
 # Run post-outage plan
 POST_OUTAGE_DURATION=15
