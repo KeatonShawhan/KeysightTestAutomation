@@ -167,6 +167,8 @@ stop_all_runners
 echo "[INFO] Spinning up $NUM_RUNNERS runner(s)..."
 "$RUNNER_SCRIPT" start "$NUM_RUNNERS" "$REG_TOKEN"
 
+
+
 # Start baseline activity
 echo "[INFO] Running baseline test plan for $RUNTIME_BEFORE_OUTAGE seconds..."
 declare -a PIDS=()
@@ -176,7 +178,8 @@ for runner_id in $(seq 1 "$NUM_RUNNERS"); do
   PIDS+=($!)
 done
 
-for pid in "${PIDS[@]}"; do wait "$pid"; done
+# temp commnet?
+# for pid in "${PIDS[@]}"; do wait "$pid"; done
 
 # Simulate outage
 echo "[INFO] Simulating network outage: pausing runners for $OUTAGE_DURATION seconds..."
@@ -186,18 +189,23 @@ sleep "$OUTAGE_DURATION"
 echo "[INFO] Network restored: resuming runners"
 resume_runners
 
-
-# Run post-outage plan
-POST_OUTAGE_DURATION=15
-RECONNECT_END_TIME=$(( $(date +%s) + POST_OUTAGE_DURATION ))
-echo "[INFO] Running post-outage test plans for $POST_OUTAGE_DURATION seconds..."
-PIDS=()
-for runner_id in $(seq 1 "$NUM_RUNNERS"); do
-  runner_loop "$runner_id" "$RECONNECT_END_TIME" "$ABS_TEST_PLAN" "$SESSION_FOLDER" &
-  PIDS+=($!)
+# Wait for baseline loops to finish
+for pid in "${PIDS[@]}"; do
+  wait "$pid"
 done
 
-for pid in "${PIDS[@]}"; do wait "$pid"; done
+
+# Run post-outage plan
+#POST_OUTAGE_DURATION=15
+#RECONNECT_END_TIME=$(( $(date +%s) + POST_OUTAGE_DURATION ))
+#echo "[INFO] Running post-outage test plans for $POST_OUTAGE_DURATION seconds..."
+#PIDS=()
+#for runner_id in $(seq 1 "$NUM_RUNNERS"); do
+#  runner_loop "$runner_id" "$RECONNECT_END_TIME" "$ABS_TEST_PLAN" "$SESSION_FOLDER" &
+#  PIDS+=($!)
+#done
+
+#for pid in "${PIDS[@]}"; do wait "$pid"; done
 
 # Tear down runners after post-outage
 echo "[INFO] Stopping all runners after post-outage run."
