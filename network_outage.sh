@@ -52,26 +52,22 @@ resume_runners() {
 
 
 run_test_plan() {
-  local rid=$1 idx=$2 plan=$3 session=$4
+  local rid=$1 plan=$2 session=$3
   local folder="$HOME/runner_$rid"
-  local out="$session/runner_${rid}_run_${idx}_out.log"
-  local met="$session/runner_${rid}_run_${idx}_met.log"
+  local out="$session/runner_${rid}_out.log"
+  local met="$session/runner_${rid}_met.log"
   mkdir -p "${session}"
   cd "$folder" || return 1
   local start=$(date +%s.%N)
-  ./tap run "$plan" &> "$out" || echo "[ERROR] runner $rid failed run $idx"
+  ./tap run "$plan" &> "$out" || echo "[ERROR] runner $rid failed"
   local end=$(date +%s.%N)
   local dur=$(awk -v s="$start" -v e="$end" 'BEGIN{printf"%.3f",e-s}')
-  echo "runner_id=$rid,run=$idx,start=$start,end=$end,duration=$dur" > "$met"
+  echo "runner_id=$rid,start=$start,end=$end,duration=$dur" | tee "$met"
 }
 
 runner_loop() {
-  local rid=$1 deadline=$2 plan=$3 session=$4
-  local count=1
-  while (( $(date +%s) < deadline )); do
-    run_test_plan "$rid" "$count" "$plan" "$session"
-    ((count++))
-    sleep $((RANDOM%5+2))
+  local rid=$1 plan=$2 session=$3
+  run_test_plan "$rid" "$plan" "$session"
   done
 }
 
@@ -116,13 +112,21 @@ stop_all_runners
 echo "[INFO] Starting $NUM_RUNNERS runners..."
 "$RUNNER_SCRIPT" start "$NUM_RUNNERS" "$TOKEN"
 
+# Better: wait for each runner directory/log before starting test plan loops
+echo "[INFO] Waiting for all $NUM_RUNNERS runner dirs to be created..."
+for id in $(seq 1 "$NUM_RUNNERS"); do
+  dir="$HOME/runner_${id}"
+  until [[ -f "$dir/runner.log" ]]; do
+    sleep 0.5
+  done
+  echo "[INFO] Runner #${id} is ready (found $dir/runner.log)."
+done
+
 # launch loops background before outage
 echo "[INFO] Running test plan for $PRE_SEC seconds before outage..."
 declare -a BG_PIDS=()
-DEAD=$(date +%s)
-DEAD=$(( DEAD + PRE_SEC ))
 for id in $(seq 1 "$NUM_RUNNERS"); do
-  runner_loop "$id" "$DEAD" "$PLAN" "$SESSION" &
+  runner_loop "$id" "$PLAN" "$SESSION" &
   BG_PIDS+=( $! )
 done
 
