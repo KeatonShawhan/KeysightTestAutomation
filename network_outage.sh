@@ -31,24 +31,25 @@ check_dependencies() {
   done
 }
 
-# Pause all Tap-runner processes (SIGSTOP)
 pause_runners() {
-  echo "[INFO] Pausing all runner processes…"
-  mapfile -t PIDS < <(pgrep -f "OPENTAP_RUNNER_SERVER_PORT=")
+  echo "[INFO] Pausing OpenTAP runner processes…"
+  mapfile -t PIDS < <(pgrep -f 'tap.dll runner')
   if (( ${#PIDS[@]} )); then
+    echo "  → pausing PIDs: ${PIDS[*]}"
     kill -STOP "${PIDS[@]}"
   else
-    echo "[WARN] No runner processes found to pause"
+    echo "[WARN] No Tap-runner processes found to pause."
   fi
 }
 
-# Resume all Tap-runner processes (SIGCONT)
 resume_runners() {
-  echo "[INFO] Resuming all runner processes…"
+  echo "[INFO] Resuming OpenTAP runner processes…"
   if (( ${#PIDS[@]} )); then
+    echo "  → resuming PIDs: ${PIDS[*]}"
     kill -CONT "${PIDS[@]}"
   fi
 }
+
 
 run_test_plan() {
   local rid=$1 idx=$2 plan=$3 session=$4
@@ -126,7 +127,7 @@ for id in $(seq 1 "$NUM_RUNNERS"); do
 done
 
 # wait PRE_SEC then pause
-sleep "$PRE_SEC"
+# sleep "$PRE_SEC"
 echo "[INFO] Simulating network outage: pausing runners for $OUTAGE_SEC s"
 pause_runners
 sleep "$OUTAGE_SEC"
