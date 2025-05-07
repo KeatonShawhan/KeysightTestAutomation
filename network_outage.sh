@@ -129,8 +129,11 @@ for id in $(seq 1 "$NUM_RUNNERS"); do
   BG_PIDS+=( $! )
 done
 
+ # 2) Let them run normally for PRE_SEC seconds
+echo "[INFO] Letting runners work for $PRE_SEC seconds before outage…"
+sleep "$PRE_SEC"
+
 # wait PRE_SEC then pause
-# sleep "$PRE_SEC"
 echo "[INFO] Simulating network outage: pausing runners for $OUTAGE_SEC s"
 pause_runners
 sleep "$OUTAGE_SEC"
