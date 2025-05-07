@@ -31,19 +31,21 @@ check_dependencies() {
   done
 }
 
+# Pause both the runner “server” processes and the per-run “tap run” jobs
 pause_runners() {
-  echo "[INFO] Pausing OpenTAP runner processes…"
-  mapfile -t PIDS < <(pgrep -f 'tap.dll runner')
+  echo "[INFO] Pausing OpenTAP processes…"
+  mapfile -t PIDS < <(pgrep -f 'tap run ' ; pgrep -f 'tap\.dll runner session')
   if (( ${#PIDS[@]} )); then
     echo "  → pausing PIDs: ${PIDS[*]}"
     kill -STOP "${PIDS[@]}"
   else
-    echo "[WARN] No Tap-runner processes found to pause."
+    echo "[WARN] No OpenTAP processes found to pause."
   fi
 }
 
+# Resume them
 resume_runners() {
-  echo "[INFO] Resuming OpenTAP runner processes…"
+  echo "[INFO] Resuming OpenTAP processes…"
   if (( ${#PIDS[@]} )); then
     echo "  → resuming PIDs: ${PIDS[*]}"
     kill -CONT "${PIDS[@]}"
@@ -129,8 +131,7 @@ for id in $(seq 1 "$NUM_RUNNERS"); do
   BG_PIDS+=( $! )
 done
 
- # 2) Let them run normally for PRE_SEC seconds
-echo "[INFO] Letting runners work for $PRE_SEC seconds before outage…"
+# 2) Let them run normally for PRE_SEC seconds
 sleep "$PRE_SEC"
 
 # wait PRE_SEC then pause
