@@ -34,7 +34,7 @@ check_dependencies() {
 # Pause both the runner “server” processes and the per-run “tap run” jobs
 pause_runners() {
   echo "[INFO] Pausing OpenTAP processes…"
-  mapfile -t PIDS < <(pgrep -f 'tap run ' ; pgrep -f 'tap\.dll runner session')
+  mapfile -t PIDS < <(pgrep -af 'tap')
   if (( ${#PIDS[@]} )); then
     echo "  → pausing PIDs: ${PIDS[*]}"
     kill -STOP "${PIDS[@]}"
