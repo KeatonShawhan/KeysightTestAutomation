@@ -31,10 +31,12 @@ check_dependencies() {
   done
 }
 
-# Pause both the runner “server” processes and the per-run “tap run” jobs
 pause_runners() {
   echo "[INFO] Pausing OpenTAP processes…"
-  mapfile -t PIDS < <(pgrep -af 'tap')
+  # find only the PIDs, not the full command line:
+  mapfile -t PIDS < <(
+    pgrep -f 'tap'
+  )
   if (( ${#PIDS[@]} )); then
     echo "  → pausing PIDs: ${PIDS[*]}"
     kill -STOP "${PIDS[@]}"
@@ -43,7 +45,6 @@ pause_runners() {
   fi
 }
 
-# Resume them
 resume_runners() {
   echo "[INFO] Resuming OpenTAP processes…"
   if (( ${#PIDS[@]} )); then
