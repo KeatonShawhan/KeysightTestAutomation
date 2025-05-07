@@ -68,7 +68,6 @@ run_test_plan() {
 runner_loop() {
   local rid=$1 plan=$2 session=$3
   run_test_plan "$rid" "$plan" "$session"
-  done
 }
 
 stop_all_runners() {
