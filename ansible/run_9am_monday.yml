@@ -11,6 +11,21 @@
     script: 9am_monday.sh
   tasks:
 
+  - name: Set a single dump folder for this run (controller fact)
+    delegate_to: localhost
+    run_once: true
+    set_fact:
+      # one timestamp for the whole playbook
+      ctl_metrics_dir: "/tmp/metrics_dump/{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+
+  - name: Ensure controller-side dump folder exists
+    delegate_to: localhost
+    run_once: true
+    file:
+      path: "{{ ctl_metrics_dir }}"
+      state: directory
+      mode: "0755"
+
   - name: Ensure repo is up-to-date (git pull)
     ansible.builtin.shell: git -C {{ repo_dir }} pull --quiet
     changed_when: false
@@ -62,3 +77,63 @@
   - name: Show raw summary_parsed on this host
     debug:
       var: script_runtimes
+
+  # ------------------------------------------------------------------
+  # Copy resource-usage log to controller
+  # ------------------------------------------------------------------
+  - name: Find newest 9amMonday metrics folder
+    ansible.builtin.shell: |
+      ls -1td "$HOME/KeysightTestAutomation/metrics"/9amMonday_* 2>/dev/null | head -1
+    register: latest_run_dir
+    changed_when: false
+
+  - name: Stat resource_usage.log
+    ansible.builtin.stat:
+      path: "{{ latest_run_dir.stdout }}/resource_usage.log"
+    register: res_log
+
+  - name: Fetch resource_usage.log to controller (if present)
+    ansible.builtin.fetch:
+      src:  "{{ latest_run_dir.stdout }}/resource_usage.log"
+      dest: "{{ ctl_metrics_dir }}/{{ inventory_hostname }}_resource_usage.log"
+      flat: true
+    when: res_log.stat.exists
+
+# ------------------------------------------------------------------
+# Controller-only: merge all fetched logs ➜ Influx line protocol
+# ------------------------------------------------------------------
+- name: Build InfluxDB dump from resource logs
+  hosts: localhost
+  gather_facts: no
+  vars:
+    # reuse the path that the first play stored on localhost
+    ctl_metrics_dir: "{{ hostvars.localhost.ctl_metrics_dir }}"
+    dump_file: "{{ ctl_metrics_dir }}/influxdump_{{ lookup('pipe','date +%Y%m%d_%H%M%S') }}.lp"
+  tasks:
+    - name: Convert each *_resource_usage.log into Influx line protocol
+      shell: |
+        outfile="{{ dump_file }}"
+        : > "$outfile"
+        shopt -s nullglob
+        for f in "{{ ctl_metrics_dir }}"/*_resource_usage.log; do
+          host="${f%%_*}"                 # strip “_resource_usage.log”
+          host="${host##*/}"              # strip any leading path
+          awk -F',' -v host="$host" 'NR>1{
+              ts_ns = $1 "000000000";
+              cpu=$2; mem=$3;
+              rd=($4==""?0:$4); wr=($5==""?0:$5);
+              rx=($6==""?0:$6); tx=($7==""?0:$7);
+              load=$8;
+              printf "pi_resources,host=%s cpu_percent=%s,memory_kb=%s,"
+              printf "disk_io_read_kb=%s,disk_io_write_kb=%s,"
+              printf "network_rx_bytes=%s,network_tx_bytes=%s,load_avg=%s %s\n",
+                     host,cpu,mem,rd,wr,rx,tx,load,ts_ns;
+          }' "$f" >> "$outfile"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Tell user where the dump file is
+      debug:
+        msg: "Combined InfluxDB dump written to {{ dump_file }}"
