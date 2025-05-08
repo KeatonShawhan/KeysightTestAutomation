@@ -1,7 +1,7 @@
 
 
 # To run this playbook:
-# ansible-playbook -i "$(../test_scripts/generate_inventory.sh)" run_cleanup_metrics.yml --extra-vars "days_old={days}"
+# ansible-playbook -i "$(../test-scripts/generate_inventory.sh)" run_cleanup_metrics.yml --extra-vars "days_old={days}"
 
 
 ---
@@ -11,7 +11,7 @@
   vars:
     days_old: 7 
     repo_dir: ~/KeysightTestAutomation
-    cleanup_script: test_scripts/cleanup_metrics.sh
+    cleanup_script: test-scripts/cleanup_metrics.sh
   tasks:
 
   - name: Ensure repo is up-to-date (git pull)
@@ -20,10 +20,10 @@
 
   - name: Run the cleanup script
     ansible.builtin.shell: |
-      cd {{ repo_dir }}/test_scripts
+      cd {{ repo_dir }}/test-scripts
       ./cleanup_metrics.sh {{ days_old }}
     args:
-      chdir: "{{ repo_dir }}/test_scripts"
+      chdir: "{{ repo_dir }}/test-scripts"
     register: cleanup_result
     changed_when: "'Deleted' in cleanup_result.stdout"
 
