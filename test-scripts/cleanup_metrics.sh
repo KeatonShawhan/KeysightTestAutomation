@@ -5,12 +5,15 @@
 # Deletes test run folders inside the metrics directory that are older than X days.
 #
 # Usage:
-#   ./clean_old_metrics.sh <days_old>
+#   ./cleanup+_metrics.sh <days_old>
 #
 
 set -e
 
-METRICS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)/metrics"
+# Get script directory (test_scripts/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+METRICS_DIR="${SCRIPT_DIR}/../metrics"
 
 usage() {
   echo "Usage: $0 <days_old>"
