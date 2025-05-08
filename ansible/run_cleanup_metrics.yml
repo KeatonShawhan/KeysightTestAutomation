@@ -1,7 +1,9 @@
 
 
 # To run this playbook:
-# ansible-playbook -i "$(../test-scripts/generate_inventory.sh)" run_cleanup_metrics.yml --extra-vars "days_old={days}"
+# ansible-playbook -i /home/user/hosts.yml run_cleanup_metrics.yml --extra-vars "days_old={days}"
+
+# ansible-playbook -i {path outputted by generate_inventory.sh} run_cleanup_metrics.yml --extra-vars "days_old={days}"
 
 
 ---
