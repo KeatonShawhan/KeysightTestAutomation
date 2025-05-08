@@ -20,6 +20,11 @@
     ansible.builtin.shell: git -C {{ repo_dir }} pull --quiet
     changed_when: false
 
+  - name: Ensure cleanup script is executable
+    ansible.builtin.file:
+      path: "{{ repo_dir }}/{{ cleanup_script }}"
+      mode: '0755'
+
   - name: Run the cleanup script
     ansible.builtin.shell: |
       cd {{ repo_dir }}/test-scripts
