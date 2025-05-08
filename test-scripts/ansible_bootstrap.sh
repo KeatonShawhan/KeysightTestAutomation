@@ -92,7 +92,7 @@ echo "   ✓ NetworkManager no longer overwrites resolv.conf; MagicDNS active."
 
 
 # ── Deploy inventory helper ─────────────────────────────────────
-sudo install -m 0755 "$CLONE_DIR/generate_inventory.sh" /usr/local/bin/
+sudo install -m 0755 "$CLONE_DIR/test-scripts/generate_inventory.sh" /usr/local/bin/
 
 
 # ── Disable host-key prompt for all Ansible runs ────────────────

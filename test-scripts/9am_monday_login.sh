@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# 9am_monday.sh
+# 9am_monday_login.sh
 #
 # A "9AM Monday" scenario: we spin up N runners, wait 5 seconds, then
 # ramp up test plans in waves. Each wave uses a larger subset of runners,
@@ -37,7 +37,7 @@ PARENT_DIR="$(dirname "$SCRIPT_DIR")"
 AUTH_SERVICE_DIR="${PARENT_DIR}/ks8500-auth-service"
 
 # Path to the runner script
-RUNNER_SCRIPT="${PARENT_DIR}/runnerScript.sh"
+RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
 
 METRICS_DIR="${SCRIPT_DIR}/metrics"
 mkdir -p "${METRICS_DIR}"

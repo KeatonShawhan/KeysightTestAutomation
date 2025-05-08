@@ -42,7 +42,7 @@
   # ------------------------------------------------------------------
   - name: Compute per-host summary (fastest / slowest / avg runner-average)
     ansible.builtin.shell: |
-      metrics_root="$HOME/KeysightTestAutomation/metrics"
+      metrics_root="$HOME/KeysightTestAutomation/scripts/test/metrics"
       latest="$(ls -1td "$metrics_root"/activeLab_* 2>/dev/null | head -1)"
 
       # if nothing found, return zeros

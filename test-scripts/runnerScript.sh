@@ -249,10 +249,14 @@ function start_runners() {
 
     # 3) Copy & install the custom Runner TapPackage
     echo "[INFO] Copying custom Runner TapPackage from local file..."
-    cp "${SCRIPT_DIR}/CustomRunner.TapPackage" custom_runner.tap_package || {
-      echo "[ERROR] Failed to copy CustomRunner.TapPackage from ${SCRIPT_DIR}."
+    if [[ -f "${SCRIPT_DIR}/CustomRunner.TapPackage" ]]; then
+      cp "${SCRIPT_DIR}/CustomRunner.TapPackage" custom_runner.tap_package
+    elif [[ -f "${SCRIPT_DIR}/../../taprunner/CustomRunner.TapPackage" ]]; then
+      cp "${SCRIPT_DIR}/../../taprunner/CustomRunner.TapPackage" custom_runner.tap_package
+    else
+      echo "[ERROR] CustomRunner.TapPackage not found in script or taprunner directory."
       exit 1
-    }
+    fi
     echo "[INFO] Installing custom Runner TapPackage..."
     ./tap package install custom_runner.tap_package >/dev/null 2>&1 || {
       echo "[ERROR] Failed to install custom_runner.tap_package."
@@ -281,10 +285,14 @@ function start_runners() {
       }
     fi
     # Copy the Instruments.xml file
-    cp "${SCRIPT_DIR}/Instruments.xml" Settings/Bench/Default/ || {
-      echo "[ERROR] Failed to copy Instruments.xml to Settings/Bench/Default directory."
+    if [[ -f "${SCRIPT_DIR}/Instruments.xml" ]]; then
+      cp "${SCRIPT_DIR}/Instruments.xml" Settings/Bench/Default/
+    elif [[ -f "${SCRIPT_DIR}/../../taprunner/Instruments.xml" ]]; then
+      cp "${SCRIPT_DIR}/../../taprunner/Instruments.xml" Settings/Bench/Default/
+    else
+      echo "[ERROR] Instruments.xml not found in script or taprunner directory."
       exit 1
-    }
+    fi
     echo "[INFO] Successfully copied Instruments.xml to ${runner_folder}/Settings/Bench/Default/"
 
     # 6) Install PythonExamples package

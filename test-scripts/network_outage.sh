@@ -95,9 +95,16 @@ if [[ -f "$PLAN" ]]; then
   PLAN=$(cd "$(dirname "$PLAN")" && pwd)/$(basename "$PLAN")
 elif [[ -f "$SCRIPT_DIR/$PLAN" ]]; then
   PLAN="$SCRIPT_DIR/$PLAN"
+elif [[ -f "$SCRIPT_DIR/../../taprunner/$PLAN" ]]; then
+  PLAN="$(cd "$SCRIPT_DIR/../../taprunner" && pwd)/$(basename "$PLAN")"
 else
-  echo "[ERROR] Plan not found: $PLAN"; exit 1
+  echo "[ERROR] Plan not found:"
+  echo " - $PLAN"
+  echo " - $SCRIPT_DIR/$PLAN"
+  echo " - $SCRIPT_DIR/../../taprunner/$PLAN"
+  exit 1
 fi
+
 
 # metrics session
 TS=$(date +%Y%m%d_%H%M%S)

@@ -27,14 +27,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 # Function to verify the test plan exists in the script directory
 function verify_test_plan() {
   local test_plan="$1"
-  local test_plan_path="${SCRIPT_DIR}/${test_plan}"
-  
-  if [[ ! -f "$test_plan_path" ]]; then
-    echo "[ERROR] Test plan not found: $test_plan_path"
-    echo "[INFO] Please place the test plan in the same directory as this script."
+  local test_plan_path=""
+
+  if [[ -f "${SCRIPT_DIR}/${test_plan}" ]]; then
+    test_plan_path="${SCRIPT_DIR}/${test_plan}"
+  elif [[ -f "${SCRIPT_DIR}/../../taprunner/${test_plan}" ]]; then
+    test_plan_path="$(cd "${SCRIPT_DIR}/../../taprunner" && pwd)/$(basename "$test_plan")"
+  else
+    echo "[ERROR] Test plan not found:"
+    echo " - ${SCRIPT_DIR}/${test_plan}"
+    echo " - ${SCRIPT_DIR}/../../taprunner/${test_plan}"
     exit 1
   fi
-  
+
   echo "[INFO] Found test plan: $test_plan_path"
 }
 
@@ -46,42 +51,55 @@ function run_test_plan() {
   local output_file="${SESSION_FOLDER}/runner_${runner_id}_metrics.log"
   local runner_dir="$HOME/runner_$runner_id"
   local runner_port=$((STARTING_PORT + runner_id - 1))
-  local test_plan_path="${SCRIPT_DIR}/${test_plan}"
-  # port might not be accurate because noisyNeighbors.sh assumes every port is open when creating runners
-  echo "[INFO] Runner #$runner_id executing test plan: $test_plan (Port: $runner_port)"
   
+  # Resolve test plan path with fallback to taprunner directory
+  local test_plan_path=""
+  if [[ -f "${SCRIPT_DIR}/${test_plan}" ]]; then
+    test_plan_path="${SCRIPT_DIR}/${test_plan}"
+  elif [[ -f "${SCRIPT_DIR}/../../taprunner/${test_plan}" ]]; then
+    test_plan_path="$(cd "${SCRIPT_DIR}/../../taprunner" && pwd)/$(basename "$test_plan")"
+  else
+    echo "[ERROR] Test plan not found:"
+    echo " - ${SCRIPT_DIR}/${test_plan}"
+    echo " - ${SCRIPT_DIR}/../../taprunner/${test_plan}"
+    return 1
+  fi
+
+  echo "[INFO] Runner #$runner_id executing test plan: $test_plan_path (Port: $runner_port)"
+
   if [[ ! -d "$runner_dir" ]]; then
     echo "[ERROR] Runner directory $runner_dir not found."
     return 1
   fi
-  
+
   # Capture start timestamp with millisecond precision
-  local start_time=$(date +%s.%N)
-  
-  # Move to runner directory but use the test plan from the script directory
+  local start_time
+  start_time=$(date +%s.%N)
+
+  # Move to runner directory but use the test plan from the resolved path
   cd "$runner_dir" || return 1
-  
+
   # Execute the test plan and capture output
   if [[ "$is_baseline" == "true" ]]; then
-    # For baseline, capture detailed output
     ./tap run "$test_plan_path" 2>&1 | tee "${SESSION_FOLDER}/runner_${runner_id}_output.log" || {
       echo "[ERROR] Failed to run test plan on runner #$runner_id."
       return 1
     }
   else
-    # For concurrent runners, just capture basic output
     ./tap run "$test_plan_path" > "${SESSION_FOLDER}/runner_${runner_id}_output.log" 2>&1 || {
       echo "[ERROR] Failed to run test plan on runner #$runner_id."
       return 1
     }
   fi
-  
+
   # Capture end timestamp
-  local end_time=$(date +%s.%N)
-  
+  local end_time
+  end_time=$(date +%s.%N)
+
   # Calculate runtime in seconds with millisecond precision
-  local runtime=$(echo "$end_time - $start_time" | bc)
-  
+  local runtime
+  runtime=$(echo "$end_time - $start_time" | bc)
+
   # Log the execution time
   echo "runner_id=$runner_id,test_plan=$test_plan,start=$start_time,end=$end_time,runtime=$runtime" > "$output_file"
   echo "[INFO] Runner #$runner_id completed in $runtime seconds"

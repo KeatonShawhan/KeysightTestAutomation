@@ -285,8 +285,14 @@ if [[ -f "$USER_TEST_PLAN" ]]; then
 elif [[ -f "${SCRIPT_DIR}/${USER_TEST_PLAN}" ]]; then
   # If the file exists relative to the script's directory
   ABS_TEST_PLAN="$(cd "$SCRIPT_DIR"; pwd)/$(basename "$USER_TEST_PLAN")"
+elif [[ -f "${SCRIPT_DIR}/../../taprunner/${USER_TEST_PLAN}" ]]; then
+  # Fallback to taprunner directory relative to repo root
+  ABS_TEST_PLAN="$(cd "${SCRIPT_DIR}/../../taprunner"; pwd)/$(basename "$USER_TEST_PLAN")"
 else
-  echo "[ERROR] Test plan not found at '$USER_TEST_PLAN' nor '$SCRIPT_DIR/$USER_TEST_PLAN'"
+  echo "[ERROR] Test plan not found at:"
+  echo " - '$USER_TEST_PLAN'"
+  echo " - '${SCRIPT_DIR}/${USER_TEST_PLAN}'"
+  echo " - '../../taprunner/${USER_TEST_PLAN}'"
   exit 1
 fi
 
