@@ -1,7 +1,7 @@
 
 
 # To run this playbook:
-# ansible-playbook cleanup_metrics.yml --extra-vars "days_old={days}"
+# ansible-playbook -i ~/hosts.yml run_cleanup_metrics.yml --extra-vars "days_old={days}"
 
 ---
 - name: Cleanup old metrics folders across all farmslug Pis
