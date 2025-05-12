@@ -175,28 +175,28 @@ build_template_if_needed() {
     unzip -q opentap.zip -d ./ && rm opentap.zip
     chmod +x ./tap
 
-    cp "${SCRIPT_DIR}/CustomRunner.TapPackage" custom_runner.tap_package
+    cp "${SCRIPT_DIR}/../taprunner/CustomRunner.TapPackage" custom_runner.tap_package
     ./tap package install custom_runner.tap_package >/dev/null
     rm custom_runner.tap_package
 
     ./tap package install PythonExamples --version rc || true
 
     mkdir -p Settings/Bench/Default
-    cp "${SCRIPT_DIR}/Instruments.xml" Settings/Bench/Default/
+    cp "${SCRIPT_DIR}/../taprunner/Instruments.xml" Settings/Bench/Default/
 
     popd >/dev/null
     touch "$TEMPLATE_READY_FLAG"
     echo "[INFO] Runner template prepared."
 }
 
-build_template_if_needed
-
-
 #############################################
 #           START RUNNERS FUNCTION          #
 #############################################
 
 function start_runners() {
+
+  build_template_if_needed
+
   local num_runners="$1"
   local registration_token="$2"
 
