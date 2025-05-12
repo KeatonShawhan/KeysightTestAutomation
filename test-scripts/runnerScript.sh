@@ -282,10 +282,6 @@ function start_runners() {
     pushd "$runner_folder" >/dev/null || {
     echo "[ERROR] cd into $runner_folder failed"; exit 1; }
 
-    echo "[DEBUG] PWD = $(pwd)"
-    echo "[DEBUG] tap exists? $(test -x ./tap && echo yes || echo no)"
-
-
     # 4) Register the Runner
     echo "[INFO] Registering the Runner..."
     ./tap runner register --url "$TAP_URL" --registrationToken "$registration_token" || {
