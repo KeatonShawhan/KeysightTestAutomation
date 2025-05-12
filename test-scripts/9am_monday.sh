@@ -27,7 +27,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
 
-METRICS_DIR="${SCRIPT_DIR}/metrics"
+METRICS_DIR="../metrics"
 mkdir -p "${METRICS_DIR}"
 
 #############################################
