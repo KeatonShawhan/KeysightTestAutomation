@@ -8,7 +8,7 @@
     test_plan: /home/pi/Baseline.TapPlan
     reg_token: CHANGE_ME
     repo_dir: ~/KeysightTestAutomation
-    script: 9am_monday.sh
+    script: test-scripts/9am_monday.sh
   tasks:
 
   - name: Set a single dump folder for this run (controller fact)
@@ -26,13 +26,14 @@
       state: directory
       mode: "0755"
 
-  - name: Ensure repo is up-to-date (git pull)
-    ansible.builtin.shell: git -C {{ repo_dir }} pull --quiet
+  - name: Ensure repo is up-to-date (git stash + pull)
+    ansible.builtin.shell: git -C {{ repo_dir}} stash --quiet && git -C {{ repo_dir }} pull --rebase --quiet
     changed_when: false
 
   - name: Run the 9 AM Monday script
     ansible.builtin.shell: |
       cd {{ repo_dir }}
+      chmod +x {{ script }}
       ./{{ script }} {{ runners }} {{ test_plan }} {{ reg_token }}
     async: 7200          # run up to 2 hours without blocking forks
     poll: 0
@@ -98,6 +99,10 @@
       dest: "{{ ctl_metrics_dir }}/{{ inventory_hostname }}_resource_usage.log"
       flat: true
     when: res_log.stat.exists
+
+  - name: Pop previously stashed git changes 
+    ansible.builtin.shell: git -C {{ repo_dir}} stash pop --quiet
+    changed_when: false
 
 # ------------------------------------------------------------------
 # Controller-only: merge all fetched logs ➜ Influx line protocol

@@ -3,7 +3,6 @@
   hosts: all
   gather_facts: no
   vars:
-    # ── tunables ────────────────────────────────────────────────────
     runners:            3                # how many OpenTAP runners to spin up
     simulation_time:    300              # seconds the lab stays active
     test_plan:          /home/pi/Baseline.TapPlan
@@ -42,7 +41,7 @@
   # ------------------------------------------------------------------
   - name: Compute per-host summary (fastest / slowest / avg runner-average)
     ansible.builtin.shell: |
-      metrics_root="$HOME/KeysightTestAutomation/scripts/test/metrics"
+      metrics_root="$HOME/KeysightTestAutomation/metrics"
       latest="$(ls -1td "$metrics_root"/activeLab_* 2>/dev/null | head -1)"
 
       # if nothing found, return zeros
