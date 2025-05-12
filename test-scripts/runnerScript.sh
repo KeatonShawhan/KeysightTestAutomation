@@ -183,7 +183,7 @@ build_template_if_needed() {
 
     mkdir -p Settings/Bench/Default
     cp "${SCRIPT_DIR}/../taprunner/Instruments.xml" Settings/Bench/Default/
-
+    python3 -m pip install --user opentap
     popd >/dev/null
     touch "$TEMPLATE_READY_FLAG"
     echo "[INFO] Runner template prepared."
@@ -269,7 +269,7 @@ function start_runners() {
 
     # 4) Register the Runner
     echo "[INFO] Registering the Runner..."
-    ./tap runner register --url "$TAP_URL" --registrationToken "$registration_token" >/dev/null 2>&1 || {
+    ./tap runner register --url "$TAP_URL" --registrationToken "$registration_token" || {
       echo "[ERROR] tap runner register failed."
       exit 1
     }
