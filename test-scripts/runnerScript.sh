@@ -279,6 +279,10 @@ function start_runners() {
     mkdir -p "$runner_folder"
     cp -a "$TEMPLATE_DIR/." "$runner_folder"
 
+    echo "[DEBUG] PWD = $(pwd)"
+    echo "[DEBUG] tap exists? $(ls -1 ./tap 2>/dev/null || echo 'no')"
+
+
     # 4) Register the Runner
     echo "[INFO] Registering the Runner..."
     ./tap runner register --url "$TAP_URL" --registrationToken "$registration_token" || {
