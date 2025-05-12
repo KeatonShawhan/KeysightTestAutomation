@@ -170,10 +170,21 @@ build_template_if_needed() {
     mkdir -p "$TEMPLATE_DIR"
     pushd "$TEMPLATE_DIR" >/dev/null || exit 1
 
+    # 2) Download & install base OpenTAP
+    echo "[INFO] Downloading base OpenTAP..."
     curl -sSL -o opentap.zip "$OPENTAP_BASE_DOWNLOAD" || {
-        echo "[ERROR] Failed to download OpenTAP"; exit 1; }
-    unzip -q opentap.zip -d ./ && rm opentap.zip
-    chmod +x ./tap
+      echo "[ERROR] Failed to download OpenTAP from '$OPENTAP_BASE_DOWNLOAD'."
+      exit 1
+    }
+    unzip -q opentap.zip -d ./ || {
+      echo "[ERROR] Failed to unzip 'opentap.zip' into $runner_folder."
+      exit 1
+    }
+    rm opentap.zip
+    chmod +x ./tap || {
+      echo "[ERROR] Unable to chmod +x ./tap"
+      exit 1
+    }
 
     cp "${SCRIPT_DIR}/../taprunner/CustomRunner.TapPackage" custom_runner.tap_package
     ./tap package install custom_runner.tap_package >/dev/null
@@ -183,7 +194,6 @@ build_template_if_needed() {
 
     mkdir -p Settings/Bench/Default
     cp "${SCRIPT_DIR}/../taprunner/Instruments.xml" Settings/Bench/Default/
-    python3 -m pip install --user opentap
     popd >/dev/null
     touch "$TEMPLATE_READY_FLAG"
     echo "[INFO] Runner template prepared."
