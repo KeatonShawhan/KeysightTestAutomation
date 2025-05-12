@@ -274,6 +274,9 @@ function start_runners() {
       exit 1
     }
 
+    echo "[INFO] Starting the Runner on port $current_port..."
+    nohup env OPENTAP_RUNNER_SERVER_PORT="$current_port" ./tap runner start > runner.log 2>&1 &
+
     echo "[INFO] Runner #$runner_index is started. Logs in $runner_folder/runner.log."
     (( runners_started++ ))
     (( offset++ ))
