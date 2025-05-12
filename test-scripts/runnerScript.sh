@@ -275,7 +275,9 @@ function start_runners() {
 
    # 2‑3) Clone the template instead of downloading / installing
     echo "[INFO] Cloning template into $runner_folder …"
-    cp -a "$TEMPLATE_DIR" "$runner_folder"
+    rm -rf "$runner_folder"
+    mkdir -p "$runner_folder"
+    cp -a "$TEMPLATE_DIR/." "$runner_folder"
 
     # 4) Register the Runner
     echo "[INFO] Registering the Runner..."
