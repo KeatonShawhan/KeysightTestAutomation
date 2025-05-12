@@ -81,8 +81,8 @@ function check_dependencies() {
   fi
   
   # Check for Instruments.xml file in the script directory
-  if [[ ! -f "${SCRIPT_DIR}/Instruments.xml" ]]; then
-    echo "[ERROR] Instruments.xml file not found in ${SCRIPT_DIR}. Please make sure it exists."
+  if [[ ! -f "${SCRIPT_DIR}/../taprunner/Instruments.xml" ]]; then
+    echo "[ERROR] Instruments.xml file not found in ${SCRIPT_DIR}../taprunner/. Please make sure it exists."
     exit 1
   fi
 }
@@ -251,8 +251,8 @@ function start_runners() {
     echo "[INFO] Copying custom Runner TapPackage from local file..."
     if [[ -f "${SCRIPT_DIR}/CustomRunner.TapPackage" ]]; then
       cp "${SCRIPT_DIR}/CustomRunner.TapPackage" custom_runner.tap_package
-    elif [[ -f "${SCRIPT_DIR}/../../taprunner/CustomRunner.TapPackage" ]]; then
-      cp "${SCRIPT_DIR}/../../taprunner/CustomRunner.TapPackage" custom_runner.tap_package
+    elif [[ -f "${SCRIPT_DIR}/../taprunner/CustomRunner.TapPackage" ]]; then
+      cp "${SCRIPT_DIR}/../taprunner/CustomRunner.TapPackage" custom_runner.tap_package
     else
       echo "[ERROR] CustomRunner.TapPackage not found in script or taprunner directory."
       exit 1
@@ -287,8 +287,8 @@ function start_runners() {
     # Copy the Instruments.xml file
     if [[ -f "${SCRIPT_DIR}/Instruments.xml" ]]; then
       cp "${SCRIPT_DIR}/Instruments.xml" Settings/Bench/Default/
-    elif [[ -f "${SCRIPT_DIR}/../../taprunner/Instruments.xml" ]]; then
-      cp "${SCRIPT_DIR}/../../taprunner/Instruments.xml" Settings/Bench/Default/
+    elif [[ -f "${SCRIPT_DIR}/../taprunner/Instruments.xml" ]]; then
+      cp "${SCRIPT_DIR}/../taprunner/Instruments.xml" Settings/Bench/Default/
     else
       echo "[ERROR] Instruments.xml not found in script or taprunner directory."
       exit 1
