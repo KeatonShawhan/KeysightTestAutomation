@@ -155,6 +155,42 @@ EOF
   sleep 5
 }
 
+TEMPLATE_DIR="$HOME/runner_template"
+TEMPLATE_READY_FLAG="$TEMPLATE_DIR/.ready"
+
+### 1. Helper: build template exactly once
+build_template_if_needed() {
+    if [[ -f "$TEMPLATE_READY_FLAG" ]]; then
+        echo "[INFO] Using cached runner template at $TEMPLATE_DIR"
+        return
+    fi
+
+    echo "[INFO] Creating fresh runner template …"
+    rm -rf "$TEMPLATE_DIR"
+    mkdir -p "$TEMPLATE_DIR"
+    pushd "$TEMPLATE_DIR" >/dev/null || exit 1
+
+    curl -sSL -o opentap.zip "$OPENTAP_BASE_DOWNLOAD" || {
+        echo "[ERROR] Failed to download OpenTAP"; exit 1; }
+    unzip -q opentap.zip -d ./ && rm opentap.zip
+    chmod +x ./tap
+
+    cp "${SCRIPT_DIR}/CustomRunner.TapPackage" custom_runner.tap_package
+    ./tap package install custom_runner.tap_package >/dev/null
+    rm custom_runner.tap_package
+
+    ./tap package install PythonExamples --version rc || true
+
+    mkdir -p Settings/Bench/Default
+    cp "${SCRIPT_DIR}/Instruments.xml" Settings/Bench/Default/
+
+    popd >/dev/null
+    touch "$TEMPLATE_READY_FLAG"
+    echo "[INFO] Runner template prepared."
+}
+
+build_template_if_needed
+
 
 #############################################
 #           START RUNNERS FUNCTION          #
@@ -226,44 +262,10 @@ function start_runners() {
     # 1) Create fresh folder
     rm -rf "$runner_folder" || true
     mkdir -p "$runner_folder"
-    cd "$runner_folder" || {
-      echo "[ERROR] Failed to cd into $runner_folder"
-      exit 1
-    }
 
-    # 2) Download & install base OpenTAP
-    echo "[INFO] Downloading base OpenTAP..."
-    curl -sSL -o opentap.zip "$OPENTAP_BASE_DOWNLOAD" || {
-      echo "[ERROR] Failed to download OpenTAP from '$OPENTAP_BASE_DOWNLOAD'."
-      exit 1
-    }
-    unzip -q opentap.zip -d ./ || {
-      echo "[ERROR] Failed to unzip 'opentap.zip' into $runner_folder."
-      exit 1
-    }
-    rm opentap.zip
-    chmod +x ./tap || {
-      echo "[ERROR] Unable to chmod +x ./tap"
-      exit 1
-    }
-
-    # 3) Copy & install the custom Runner TapPackage
-    echo "[INFO] Copying custom Runner TapPackage from local file..."
-    if [[ -f "${SCRIPT_DIR}/CustomRunner.TapPackage" ]]; then
-      cp "${SCRIPT_DIR}/CustomRunner.TapPackage" custom_runner.tap_package
-    elif [[ -f "${SCRIPT_DIR}/../taprunner/CustomRunner.TapPackage" ]]; then
-      cp "${SCRIPT_DIR}/../taprunner/CustomRunner.TapPackage" custom_runner.tap_package
-    else
-      echo "[ERROR] CustomRunner.TapPackage not found in script or taprunner directory."
-      exit 1
-    fi
-    echo "[INFO] Installing custom Runner TapPackage..."
-    ./tap package install custom_runner.tap_package >/dev/null 2>&1 || {
-      echo "[ERROR] Failed to install custom_runner.tap_package."
-      exit 1
-    }
-    rm custom_runner.tap_package
-
+   # 2‑3) Clone the template instead of downloading / installing
+    echo "[INFO] Cloning template into $runner_folder …"
+    cp -a "$TEMPLATE_DIR" "$runner_folder"
 
     # 4) Register the Runner
     echo "[INFO] Registering the Runner..."
@@ -271,43 +273,6 @@ function start_runners() {
       echo "[ERROR] tap runner register failed."
       exit 1
     }
-
-    # 5) Copy Instruments.xml to Settings/Bench/Default directory
-    # Wait a bit for the runner to fully initialize and create all necessary directories
-    sleep 2
-    echo "[INFO] Copying Instruments.xml to Settings/Bench/Default directory..."
-    # Check if the directory exists, and if not, create it
-    if [[ ! -d "Settings/Bench/Default" ]]; then
-      echo "[INFO] Settings/Bench/Default directory not found, creating it now..."
-      mkdir -p Settings/Bench/Default || {
-        echo "[ERROR] Failed to create Settings/Bench/Default directory."
-        exit 1
-      }
-    fi
-    # Copy the Instruments.xml file
-    if [[ -f "${SCRIPT_DIR}/Instruments.xml" ]]; then
-      cp "${SCRIPT_DIR}/Instruments.xml" Settings/Bench/Default/
-    elif [[ -f "${SCRIPT_DIR}/../taprunner/Instruments.xml" ]]; then
-      cp "${SCRIPT_DIR}/../taprunner/Instruments.xml" Settings/Bench/Default/
-    else
-      echo "[ERROR] Instruments.xml not found in script or taprunner directory."
-      exit 1
-    fi
-    echo "[INFO] Successfully copied Instruments.xml to ${runner_folder}/Settings/Bench/Default/"
-
-    # 6) Install PythonExamples package
-    echo "[INFO] Installing PythonExamples package..."
-    ./tap package install PythonExamples --version rc || {
-      echo "[WARNING] Installing PythonExamples package failed. Continuing anyway."
-    }
-    echo "[INFO] PythonExamples package installed successfully."
-
-    # 7) Start the Runner in the background
-    echo "[INFO] Starting the Runner on port $current_port..."
-    nohup env OPENTAP_RUNNER_SERVER_PORT="$current_port" ./tap runner start > runner.log 2>&1 &
-
-    # Optional short pause so the runner can bind the port
-    sleep 1
 
     echo "[INFO] Runner #$runner_index is started. Logs in $runner_folder/runner.log."
     (( runners_started++ ))
