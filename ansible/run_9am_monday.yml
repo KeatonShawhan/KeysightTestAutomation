@@ -26,8 +26,28 @@
       state: directory
       mode: "0755"
 
-  - name: Ensure repo is up-to-date (git stash + pull)
-    ansible.builtin.shell: git -C {{ repo_dir}} stash --quiet && git -C {{ repo_dir }} pull --rebase --quiet
+  - name: Stash local changes (static label)
+    ansible.builtin.shell: |
+      cd {{ repo_dir }}
+
+      # If the working tree and index are already clean, signal “no stash”.
+      if git diff --quiet && git diff --cached --quiet ; then
+          echo "NO_STASH"
+      else
+          prev_ref=$(git stash list | awk -F: '$2 ~ /ansible-run/ {print $1; exit}')
+          [ -n "$prev_ref" ] && git stash drop --quiet "$prev_ref"
+
+          # Push current changes with the fixed label.
+          git stash push -m "ansible-run" --quiet
+
+          # Grab the ref of the stash we just created (top of the list).
+          git stash list | head -n 1 | cut -d: -f1
+      fi
+    register: stash_status
+    changed_when: "'NO_STASH' not in stash_status.stdout"
+
+  - name: Ensure repo is up-to-date
+    ansible.builtin.shell: git -C {{ repo_dir }} pull --rebase --autostash --quiet
     changed_when: false
 
   - name: Run the 9 AM Monday script
@@ -100,9 +120,13 @@
       flat: true
     when: res_log.stat.exists
 
-  - name: Pop previously stashed git changes 
-    ansible.builtin.shell: git -C {{ repo_dir}} stash pop --quiet
+  - name: Pop the stash we created earlier (if any)
+    ansible.builtin.shell: |
+      cd {{ repo_dir }}
+      ref="{{ stash_status.stdout | trim }}"
+      [ "$ref" != "NO_STASH" ] && git stash pop --quiet "$ref"
     changed_when: false
+    when: stash_status.stdout is defined and stash_status.stdout | trim != "NO_STASH"
 
 # ------------------------------------------------------------------
 # Controller-only: merge all fetched logs ➜ Influx line protocol
