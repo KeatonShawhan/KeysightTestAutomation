@@ -11,21 +11,6 @@
     script: test-scripts/9am_monday.sh
   tasks:
 
-  - name: Set a single dump folder for this run (controller fact)
-    delegate_to: localhost
-    run_once: true
-    set_fact:
-      # one timestamp for the whole playbook
-      ctl_metrics_dir: "/tmp/metrics_dump/{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
-
-  - name: Ensure controller-side dump folder exists
-    delegate_to: localhost
-    run_once: true
-    file:
-      path: "{{ ctl_metrics_dir }}"
-      state: directory
-      mode: "0755"
-
   - name: Stash local changes (static label)
     ansible.builtin.shell: |
       cd {{ repo_dir }}
@@ -49,6 +34,22 @@
   - name: Ensure repo is up-to-date
     ansible.builtin.shell: git -C {{ repo_dir }} pull --rebase --autostash --quiet
     changed_when: false
+
+  # ------------------------------------------------------------------
+  # Generate one timestamp & dump directory for the whole playbook
+  # ------------------------------------------------------------------
+  - name: Generate controller dump folder path (once, on localhost)
+    delegate_to: localhost
+    run_once: true
+    set_fact:
+      ctl_metrics_dir:   "/tmp/metrics_dump/{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+
+  - name: Promote ctl_metrics_dir to playbook scope
+    delegate_to: localhost
+    run_once: true
+    set_stats:
+      data:
+        ctl_metrics_dir: "{{ ctl_metrics_dir }}"
 
   - name: Run the 9 AM Monday script
     ansible.builtin.shell: |
@@ -133,10 +134,8 @@
 # ------------------------------------------------------------------
 - name: Build InfluxDB dump from resource logs
   hosts: localhost
-  gather_facts: no
+  gather_facts: no        # keep facts off, we don't need them
   vars:
-    # reuse the path that the first play stored on localhost
-    ctl_metrics_dir: "{{ hostvars.localhost.ctl_metrics_dir }}"
     dump_file: "{{ ctl_metrics_dir }}/influxdump_{{ lookup('pipe','date +%Y%m%d_%H%M%S') }}.lp"
   tasks:
     - name: Convert each *_resource_usage.log into Influx line protocol
