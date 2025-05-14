@@ -11,10 +11,17 @@
 
 set -e
 
+# Absolute path to the folder that holds *this* script …
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+# … and to the repo root (one level up from test-scripts/)
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." &>/dev/null && pwd)"
+
 RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
-METRICS_DIR="${SCRIPT_DIR}/metrics"
-mkdir -p "$METRICS_DIR"
+
+# Drop all metrics in <repo-root>/metrics instead of test-scripts/metrics
+METRICS_DIR="${REPO_ROOT}/metrics"
+mkdir -p "${METRICS_DIR}"
 
 usage() {
   echo "Usage: $0 <runners> <runtime_before_outage> <outage_duration> <test_plan_path> <registration_token>"
