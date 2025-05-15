@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TestPlan type="OpenTap.TestPlan">
+  <Steps>
+    <TestStep type="OpenTap.Plugins.BasicSteps.ParallelStep" Id="55b25f02-4cef-4ff3-bd58-bbe25a1a21de">
+      <Name Metadata="Step Name">Parallel</Name>
+      <ChildTestSteps>
+        <TestStep type="OpenTap.Plugins.BasicSteps.RepeatStep" Id="c391948f-2bd7-47cf-8c63-32f82d1f1352">
+          <Action>Fixed_Count</Action>
+          <TargetStep />
+          <TargetVerdict>Fail</TargetVerdict>
+          <Count>5</Count>
+          <Retry>false</Retry>
+          <ClearVerdict>false</ClearVerdict>
+          <MaxCount>
+            <Value>3</Value>
+            <IsEnabled>false</IsEnabled>
+          </MaxCount>
+          <Name Metadata="Step Name">Repeat</Name>
+          <ChildTestSteps>
+            <TestStep type="PythonExamples.ChargeStep.ChargeStep" Id="96334724-6c15-4497-8816-dd1b4a25d2b8">
+              <Current>10</Current>
+              <Voltage>3</Voltage>
+              <TargetCellVoltageMargin>1</TargetCellVoltageMargin>
+              <ChargeType>0</ChargeType>
+              <MeasurementInterval>0.2</MeasurementInterval>
+              <PowerAnalyzer Source="OpenTap.InstrumentSettings">PyPowerAnalyzer</PowerAnalyzer>
+              <Name Metadata="Step Name">Charge</Name>
+            </TestStep>
+            <TestStep type="PythonExamples.DischargeStep.DischargeStep" Id="764c63db-3a68-4faf-b5dd-865a5b352341">
+              <Current>5</Current>
+              <Voltage>2.2</Voltage>
+              <TargetCellVoltageMargin>0.8</TargetCellVoltageMargin>
+              <DischargeTime>0.0018822</DischargeTime>
+              <MeasurementInterval>0.2</MeasurementInterval>
+              <PowerAnalyzer Source="OpenTap.InstrumentSettings">PyPowerAnalyzer</PowerAnalyzer>
+              <Name Metadata="Step Name">Discharge</Name>
+            </TestStep>
+          </ChildTestSteps>
+        </TestStep>
+      </ChildTestSteps>
+    </TestStep>
+  </Steps>
+  <Package.Dependencies>
+    <Package Name="OpenTAP" Version="^9.22.1+9447a2af" />
+    <Package Name="PythonExamples" Version="^3.2.0-rc.3+15872c14" />
+  </Package.Dependencies>
+</TestPlan>
