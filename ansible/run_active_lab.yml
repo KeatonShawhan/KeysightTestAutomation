@@ -5,7 +5,7 @@
   vars:
     runners:            3                # how many OpenTAP runners to spin up
     simulation_time:    300              # seconds the lab stays active
-    test_plan:          /home/pi/Baseline.TapPlan
+    test_plan:          /home/pi/taprunner/Baseline.TapPlan
     reg_token:          CHANGE_ME
     repo_dir:           ~/KeysightTestAutomation
     script:             test-scripts/active_lab.sh
