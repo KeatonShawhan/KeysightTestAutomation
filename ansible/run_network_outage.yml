@@ -92,7 +92,7 @@
       var: script_runtimes
 
   # ── copy resource-usage log to controller ────────────────────────────────
-  - name: Find newest 9amMonday metrics folder
+  - name: Find newest networkOutage metrics folder
     shell: ls -1td "$HOME/KeysightTestAutomation/metrics"/networkOutage_* 2>/dev/null | head -1
     register: latest_run_dir
     changed_when: false
