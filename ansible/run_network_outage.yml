@@ -16,17 +16,19 @@
         mode: "0755"
 
 ##############################################################################
-# PLAY 1 ─ Run “9 AM Monday” scenario on every Pi and fetch resource logs
+# PLAY 1 ─ Run “Network Outage” scenario on every Pi and fetch resource logs
 ##############################################################################
-- name: Run “9 AM Monday” scenario on all farmslug Pis
+- name: Run “Network Outage" scenario on all farmslug Pis
   hosts: all
   gather_facts: no
   vars:
     runners:   3
+    runtime_before_outage:  300  # seconds before outage (placeholder)
+    outage_duration:        60   # outage length in seconds (placeholder)
     test_plan: /home/pi/Baseline.TapPlan
     reg_token: CHANGE_ME
     repo_dir:  ~/KeysightTestAutomation
-    script:    test-scripts/9am_monday.sh
+    script:    test-scripts/network_outage.sh
   tasks:
   # ──────────────────────────────────────────────────────────────────────────
   - name: Stash local changes (static label)
@@ -48,11 +50,11 @@
     changed_when: false
 
   # ── run the scenario ─────────────────────────────────────────────────────
-  - name: Run the 9 AM Monday script
+  - name: Run the Network Outage script
     shell: |
       cd {{ repo_dir }}
       chmod +x {{ script }}
-      ./{{ script }} {{ runners }} {{ test_plan }} {{ reg_token }}
+      ./{{ script }} {{ runners }} {{ runtime_before_outage }} {{ outage_duration }} {{ test_plan }} {{ reg_token }}
     async: 7200
     poll: 0
     register: job
@@ -90,8 +92,8 @@
       var: script_runtimes
 
   # ── copy resource-usage log to controller ────────────────────────────────
-  - name: Find newest 9amMonday metrics folder
-    shell: ls -1td "$HOME/KeysightTestAutomation/metrics"/9amMonday_* 2>/dev/null | head -1
+  - name: Find newest networkOutage metrics folder
+    shell: ls -1td "$HOME/KeysightTestAutomation/metrics"/networkOutage_* 2>/dev/null | head -1
     register: latest_run_dir
     changed_when: false
 

@@ -3,19 +3,36 @@
   hosts: all
   gather_facts: no
   vars:
-    # ── tunables ────────────────────────────────────────────────────
     runners:            3                # how many OpenTAP runners to spin up
     simulation_time:    300              # seconds the lab stays active
     test_plan:          /home/pi/Baseline.TapPlan
     reg_token:          CHANGE_ME
     repo_dir:           ~/KeysightTestAutomation
-    script:             active_lab.sh
+    script:             test-scripts/active_lab.sh
   tasks:
-  # ------------------------------------------------------------------
-  # 1. make sure code is current
-  # ------------------------------------------------------------------
-  - name: Ensure repo is up-to-date (git pull)
-    ansible.builtin.shell: git -C {{ repo_dir }} pull --quiet
+
+  - name: Stash local changes (static label)
+    ansible.builtin.shell: |
+      cd {{ repo_dir }}
+
+      # If the working tree and index are already clean, signal “no stash”.
+      if git diff --quiet && git diff --cached --quiet ; then
+          echo "NO_STASH"
+      else
+          prev_ref=$(git stash list | awk -F: '$2 ~ /ansible-run/ {print $1; exit}')
+          [ -n "$prev_ref" ] && git stash drop --quiet "$prev_ref"
+
+          # Push current changes with the fixed label.
+          git stash push -m "ansible-run" --quiet
+
+          # Grab the ref of the stash we just created (top of the list).
+          git stash list | head -n 1 | cut -d: -f1
+      fi
+    register: stash_status
+    changed_when: "'NO_STASH' not in stash_status.stdout"
+
+  - name: Ensure repo is up-to-date
+    ansible.builtin.shell: git -C {{ repo_dir }} pull --rebase --autostash --quiet
     changed_when: false
 
   # ------------------------------------------------------------------
@@ -42,7 +59,7 @@
   # ------------------------------------------------------------------
   - name: Compute per-host summary (fastest / slowest / avg runner-average)
     ansible.builtin.shell: |
-      metrics_root="$HOME/KeysightTestAutomation/scripts/test/metrics"
+      metrics_root="$HOME/KeysightTestAutomation/metrics"
       latest="$(ls -1td "$metrics_root"/activeLab_* 2>/dev/null | head -1)"
 
       # if nothing found, return zeros
@@ -77,3 +94,10 @@
     debug:
       var: active_lab_runtimes
 
+  - name: Pop the stash we created earlier (if any)
+    ansible.builtin.shell: |
+      cd {{ repo_dir }}
+      ref="{{ stash_status.stdout | trim }}"
+      [ "$ref" != "NO_STASH" ] && git stash pop --quiet "$ref"
+    changed_when: false
+    when: stash_status.stdout is defined and stash_status.stdout | trim != "NO_STASH"

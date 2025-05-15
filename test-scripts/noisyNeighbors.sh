@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 set -e
 
+# Absolute path to the folder that holds *this* script …
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-# now set up where logs will go
-METRICS_DIR="${SCRIPT_DIR}/metrics"
-mkdir -p "$METRICS_DIR"
+# … and to the repo root (one level up from test-scripts/)
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." &>/dev/null && pwd)"
+
+RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
+
+# Drop all metrics in <repo-root>/metrics instead of test-scripts/metrics
+METRICS_DIR="${REPO_ROOT}/metrics"
+mkdir -p "${METRICS_DIR}"
 
 # Create a timestamped folder for this run
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
@@ -14,8 +20,6 @@ mkdir -p "$SESSION_FOLDER"
 export METRICS_DIR="$SESSION_FOLDER"
 
 source "${SCRIPT_DIR}/metric_tools.sh"
-
-RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
 
 # --- CONFIGURATION ---
 STARTING_PORT=20110

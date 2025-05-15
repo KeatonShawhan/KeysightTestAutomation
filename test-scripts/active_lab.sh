@@ -25,12 +25,17 @@
 #             CONFIG & GLOBALS             #
 #############################################
 
+# Absolute path to the folder that holds *this* script …
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+# … and to the repo root (one level up from test-scripts/)
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." &>/dev/null && pwd)"
+
 RUNNER_SCRIPT="${SCRIPT_DIR}/runnerScript.sh"
 
-# now set up where logs will go
-METRICS_DIR="${SCRIPT_DIR}/metrics"
-mkdir -p "$METRICS_DIR"
+# Drop all metrics in <repo-root>/metrics instead of test-scripts/metrics
+METRICS_DIR="${REPO_ROOT}/metrics"
+mkdir -p "${METRICS_DIR}"
 
 #############################################
 #        UTILITY & HELPER FUNCTIONS        #
