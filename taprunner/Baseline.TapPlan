@@ -19,8 +19,8 @@
           <ChildTestSteps>
             <TestStep type="PythonExamples.ChargeStep.ChargeStep" Id="96334724-6c15-4497-8816-dd1b4a25d2b8">
               <Current>10</Current>
-              <Voltage>0.1</Voltage>
-              <TargetCellVoltageMargin>0.1</TargetCellVoltageMargin>
+              <Voltage>3</Voltage>
+              <TargetCellVoltageMargin>1</TargetCellVoltageMargin>
               <ChargeType>0</ChargeType>
               <MeasurementInterval>0.2</MeasurementInterval>
               <PowerAnalyzer Source="OpenTap.InstrumentSettings">PyPowerAnalyzer</PowerAnalyzer>
@@ -30,7 +30,7 @@
               <Current>5</Current>
               <Voltage>2.2</Voltage>
               <TargetCellVoltageMargin>0.8</TargetCellVoltageMargin>
-              <DischargeTime>4.8478429</DischargeTime>
+              <DischargeTime>0.0018822</DischargeTime>
               <MeasurementInterval>0.2</MeasurementInterval>
               <PowerAnalyzer Source="OpenTap.InstrumentSettings">PyPowerAnalyzer</PowerAnalyzer>
               <Name Metadata="Step Name">Discharge</Name>
