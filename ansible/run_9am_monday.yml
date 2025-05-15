@@ -23,7 +23,7 @@
   gather_facts: no
   vars:
     runners:   3
-    test_plan: /home/pi/Baseline.TapPlan
+    test_plan: /home/pi/taprunner/Baseline.TapPlan
     reg_token: CHANGE_ME
     repo_dir:  ~/KeysightTestAutomation
     script:    test-scripts/9am_monday.sh
