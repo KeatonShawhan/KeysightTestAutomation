@@ -46,6 +46,9 @@ mkdir -p "${METRICS_DIR}"
 DEFAULT_SIMULATE_LOGINS="false"
 DEFAULT_LOGIN_RETRIES=2
 
+# Login rate - one login per X runners (default: 5)
+LOGIN_RATE=5
+
 #############################################
 #        UTILITY & HELPER FUNCTIONS        #
 #############################################
@@ -55,7 +58,7 @@ usage() {
   echo "  $0 <runners> <test_plan_path> <registration_token> [simulate_logins] [login_retries]"
   echo "  simulate_logins: 'true' or 'false' (default: false)"
   echo "  login_retries: number of retries for failed login simulations (default: 2)"
-  echo "  (When simulate_logins is true, one login will be simulated per runner)"
+  echo "  (When simulate_logins is true, one login will be simulated per $LOGIN_RATE runners)"
   exit 1
 }
 
@@ -126,13 +129,16 @@ run_cypress_login() {
   return 0
 }
 
-# Simulate multiple users logging in
+# Simulate logins at a rate of one login per LOGIN_RATE runners
 simulate_logins() {
-  local num_logins="$1"
+  local num_runners="$1"
   local session_folder="$2"
   local max_retries="$3"
   
-  echo "[INFO] Simulating $num_logins users logging in simultaneously (one per runner), with up to $max_retries retries..."
+  # Calculate number of logins to perform (ceiling division)
+  local num_logins=$(( (num_runners + LOGIN_RATE - 1) / LOGIN_RATE ))
+  
+  echo "[INFO] Simulating $num_logins users logging in (one login per $LOGIN_RATE runners), with up to $max_retries retries..."
   
   # Create a directory for login simulation logs
   local login_logs_dir="${session_folder}/login_logs"
@@ -147,7 +153,7 @@ simulate_logins() {
     
     # Run Cypress in the background with retry logic
     (
-      echo "[INFO] Starting login simulation #$i"
+      echo "[INFO] Starting login simulation #$i (representing runners $((1 + (i-1)*LOGIN_RATE)) to $(( i*LOGIN_RATE < num_runners ? i*LOGIN_RATE : num_runners )))"
       run_cypress_login "$i" "$log_file" "$max_retries"
       echo "[INFO] Login simulation #$i process completed"
     ) &
@@ -172,7 +178,7 @@ simulate_logins() {
   # Summarize results
   echo "----------------------------------------------------"
   echo "[INFO] Login simulation summary:"
-  echo "  - Total login attempts: $num_logins"
+  echo "  - Total login attempts: $num_logins (one per $LOGIN_RATE runners, for $num_runners total runners)"
   echo "  - Successful logins: $((num_logins-failed))"
   echo "  - Failed logins: $failed"
   echo "  - Logs are available in: $login_logs_dir"
@@ -292,12 +298,15 @@ sleep 5
 
 # 8) Simulate login traffic if requested - MOVED HERE from earlier in the flow
 if [[ "$SIMULATE_LOGINS" == "true" ]]; then
-  echo "[INFO] Simulating login traffic with $NUM_RUNNERS concurrent logins (one per runner)..."
+  echo "[INFO] Simulating login traffic with one login per $LOGIN_RATE runners..."
   simulate_logins "$NUM_RUNNERS" "$SESSION_FOLDER" "$LOGIN_RETRIES"
+  
+  # Calculate number of logins
+  num_logins=$(( (NUM_RUNNERS + LOGIN_RATE - 1) / LOGIN_RATE ))
   
   # Check if too many login simulations failed
   login_failures=$?
-  max_allowed_failures=$((NUM_RUNNERS / 2))
+  max_allowed_failures=$((num_logins / 2))
   if [[ "$login_failures" -gt "$max_allowed_failures" ]]; then
     echo "[ERROR] Too many login simulations failed ($login_failures). Cannot proceed with test execution."
     stop_all_runners
