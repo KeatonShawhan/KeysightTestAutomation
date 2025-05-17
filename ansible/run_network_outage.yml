@@ -25,7 +25,7 @@
     runners:   3
     runtime_before_outage:  300  # seconds before outage (placeholder)
     outage_duration:        60   # outage length in seconds (placeholder)
-    test_plan: /home/pi/Baseline.TapPlan
+    test_plan: ../taprunner/Baseline.TapPlan
     reg_token: CHANGE_ME
     repo_dir:  ~/KeysightTestAutomation
     script:    test-scripts/network_outage.sh
@@ -50,22 +50,31 @@
     changed_when: false
 
   # ── run the scenario ─────────────────────────────────────────────────────
-  - name: Run the Network Outage script
-    shell: |
-      cd {{ repo_dir }}
-      chmod +x {{ script }}
-      ./{{ script }} {{ runners }} {{ runtime_before_outage }} {{ outage_duration }} {{ test_plan }} {{ reg_token }}
-    async: 7200
-    poll: 0
-    register: job
+  - name: Launch Network Outage script
+  become: yes                     # avoids “sudo” prompts inside the script
+  shell: >
+    chmod +x {{ script }}
+    ./{{ script }}
+    {{ runners }}
+    {{ runtime_before_outage }}
+    {{ outage_duration }}
+    {{ test_plan | regex_replace('^~', lookup('env','HOME')) }}
+    {{ reg_token }}
+  args:
+    chdir: "{{ repo_dir }}"
+  async: "{{ runtime_before_outage | int            # 30
+            + outage_duration      | int            # 20
+            + 240                                 }}"  # 4-min cushion
+  poll: 0
+  register: net_job
 
-  - name: Wait for script to finish
-    async_status:
-      jid: "{{ job.ansible_job_id }}"
-    register: job_status
-    until: job_status.finished
-    retries: 720
-    delay: 10
+- name: Wait for script to finish
+  async_status:
+    jid: "{{ net_job.ansible_job_id }}"
+  register: net_status
+  until: net_status.finished
+  delay: 5
+  retries: "{{ (runtime_before_outage | int + outage_duration | int + 240) // 5 }}"
 
   # ── pull per-host runtime summary (unchanged) ────────────────────────────
   - name: Compute per-host summary (fastest / slowest / avg runtime)
