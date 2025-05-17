@@ -51,7 +51,7 @@
 
   # ── run the scenario ─────────────────────────────────────────────────────
   - name: Launch Network Outage script
-  become: yes                     # avoids “sudo” prompts inside the script
+  become: yes
   shell: >
     chmod +x {{ script }}
     ./{{ script }}
