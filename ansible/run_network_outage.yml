@@ -28,7 +28,7 @@
     test_plan: ../taprunner/Baseline.TapPlan
     reg_token: CHANGE_ME
     repo_dir:  ~/KeysightTestAutomation
-    script:    test-scripts/network_outage.sh
+    script:    test-scripts/9am_monday.sh
   tasks:
   # ──────────────────────────────────────────────────────────────────────────
   - name: Stash local changes (static label)
