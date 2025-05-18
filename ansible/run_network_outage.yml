@@ -23,12 +23,12 @@
   gather_facts: no
   vars:
     runners:   3
-    runtime_before_outage:  300  # seconds before outage (placeholder)
-    outage_duration:        60   # outage length in seconds (placeholder)
+    runtime_before_outage:  30 
+    outage_duration:        30 
     test_plan: ../taprunner/Baseline.TapPlan
     reg_token: CHANGE_ME
     repo_dir:  ~/KeysightTestAutomation
-    script:    test-scripts/9am_monday.sh
+    script:    test-scripts/network_outage.sh
   tasks:
   # ──────────────────────────────────────────────────────────────────────────
   - name: Stash local changes (static label)

@@ -40,9 +40,8 @@ check_dependencies() {
 
 pause_runners() {
   echo "[INFO] Pausing OpenTAP processes…"
-  # find only the PIDs, not the full command line:
   mapfile -t PIDS < <(
-    pgrep -f 'tap'
+    ps aux | grep -E '(./tap |bin/tap|dotnet.*OpenTap)' | grep -v grep | awk '{print $2}'
   )
   if (( ${#PIDS[@]} )); then
     echo "  → pausing PIDs: ${PIDS[*]}"
