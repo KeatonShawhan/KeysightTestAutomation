@@ -221,9 +221,9 @@ function start_runners() {
   fi
 
   # Check that we have enough available ports
-  local available_ports=$((MAX_PORT - STARTING_PORT + 1))
-  if (( num_runners > available_ports )); then
-    echo "[ERROR] Requested $num_runners runners, but only $available_ports ports are in [$STARTING_PORT..$MAX_PORT]."
+  available_pairs=$(( (MAX_PORT - STARTING_PORT + 1) / 2 ))
+  if (( num_runners > available_pairs )); then
+    echo "[ERROR] Only $available_pairs runner slots fit in [$STARTING_PORT-$MAX_PORT]."
     exit 1
   fi
 
@@ -250,18 +250,11 @@ function start_runners() {
 
     # Find the next free port
     while true; do
-      current_port=$(( STARTING_PORT + offset ))
-      if (( current_port > MAX_PORT )); then
-        echo "[ERROR] Ran out of ports before starting all $num_runners runners. Created $runners_started so far."
-        exit 1
+      current_port=$(( STARTING_PORT + offset*2 ))   # 20111, 20113, 20115 …
+      if is_port_free "$current_port" && is_port_free "$((current_port+1))"; then
+          break
       fi
-      if is_port_free "$current_port"; then
-        # We found a free port
-        break
-      else
-        echo "[WARNING] Port $current_port is busy. Checking the next one..."
-        (( offset++ ))
-      fi
+      (( offset++ ))                                 # try the next pair
     done
 
     # Now current_port is free; let's create the runner
