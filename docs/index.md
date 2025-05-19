@@ -12,12 +12,12 @@ Welcome! This site contains guides, architecture details, and reference material
 
 ## Navigation
 
-* **[Getting Started](getting-started.html)** – install and run your first test.
-* **[Test Scenarios](test-scenarios.html)** – explore built‑in workload patterns.
-* **[Architecture](architecture.html)** – learn about the system design.
-* **[Automation Guide](automation-guide.html)** – orchestrate with Ansible.
-* **[Metrics & Analysis](metrics-analysis.html)** – analyse performance data.
-* **[Troubleshooting](troubleshooting.html)** – diagnose and fix issues.
-* **[Contributing](contributing.html)** – join the project.
+* **[Getting Started](docs/getting-started.html)** – install and run your first test.
+* **[Test Scenarios](docs/test-scenarios.html)** – explore built‑in workload patterns.
+* **[Architecture](docs/architecture.html)** – learn about the system design.
+* **[Automation Guide](docs/automation-guide.html)** – orchestrate with Ansible.
+* **[Metrics & Analysis](docs/metrics-analysis.html)** – analyse performance data.
+* **[Troubleshooting](docs/troubleshooting.html)** – diagnose and fix issues.
+* **[Contributing](docs/contributing.html)** – join the project.
 
 ---
