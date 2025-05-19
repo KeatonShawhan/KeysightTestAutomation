@@ -217,9 +217,9 @@ Significant contributors are listed in release notes and may be invited as maint
 
 First consult key documentation:
 
-* **[Getting Started](docs/getting-started.html)**
-* **[Architecture](docs/architecture.html)**
-* **[Troubleshooting](docs/troubleshooting.html)**
+* **[Getting Started](getting-started.html)**
+* **[Architecture](architecture.html)**
+* **[Troubleshooting](troubleshooting.html)**
 
 For further help:
 
