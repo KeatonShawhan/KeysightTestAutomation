@@ -2,7 +2,7 @@
 
 layout: default
 title: Troubleshooting
-----------------------
+---
 
 # Troubleshooting Guide
 

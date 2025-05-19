@@ -2,7 +2,7 @@
 
 layout: default
 title: Metrics & Analysis
--------------------------
+---
 
 # Metrics & Analysis Guide
 

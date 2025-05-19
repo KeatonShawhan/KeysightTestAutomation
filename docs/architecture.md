@@ -2,7 +2,7 @@
 
 layout: default
 title: Architecture
--------------------
+---
 
 # System Architecture
 

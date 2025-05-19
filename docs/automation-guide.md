@@ -2,7 +2,7 @@
 
 layout: default
 title: Automation Guide
------------------------
+---
 
 # Ansible Automation Guide
 
