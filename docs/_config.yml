@@ -26,8 +26,8 @@ exclude:
 
 # Site settings
 author: "Keysight Test Automation Team"
-email: your-email@example.com  # Replace with actual email
-github_username: KeatonShawhan
+email: your-email@example.com  
+github_username: user123
 
 # Social links
 github:
