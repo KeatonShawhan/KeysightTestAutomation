@@ -4,10 +4,6 @@ theme: minima
 url: "https://keatonshawhan.github.io"
 baseurl: "/KeysightTestAutomation"
 
-# Navigation structure (minima theme doesn't use this directly)
-# You'll need to create _includes/header.html to use custom navigation
-# For now, rely on default theme navigation
-
 # Jekyll plugins
 plugins:
   - jekyll-feed
