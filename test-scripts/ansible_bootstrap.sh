@@ -86,13 +86,29 @@ NM
 # restart NetworkManager so the new setting takes effect
 sudo systemctl restart NetworkManager
 
-# ask tailscaled to (re)write its DNS lines into resolv.conf
+# ── Ensure /etc/resolv.conf is a real file owned by Tailscale ──────────────
+echo "▶ Converting /etc/resolv.conf to a Tailscale-managed file…"
+
+# 1. Make sure it's not a symlink
+if [ -L /etc/resolv.conf ]; then
+  sudo rm -f /etc/resolv.conf
+  sudo touch /etc/resolv.conf
+fi
+
+# 2. Remove immutable flag in case this Pi was re-imaged from another card
+sudo chattr -i /etc/resolv.conf 2>/dev/null || true
+
+# 3. Ask tailscaled to (re)write its DNS block
 sudo tailscale set --accept-dns=true
-echo "   ✓ NetworkManager no longer overwrites resolv.conf; MagicDNS active."
+
+# 4. Lock the file down permanently
+#    IF FILE EVER NEEDS ALTERATION, UNLOCK W/ sudo chattr -i /etc/resolv.conf
+sudo chattr +i /etc/resolv.conf
+echo "   ✓ /etc/resolv.conf is now owned exclusively by Tailscale."
 
 
 # ── Deploy inventory helper ─────────────────────────────────────
-sudo install -m 0755 "$CLONE_DIR/test-scripts/generate_inventory.sh" /usr/local/bin/
+sudo install -m 0755 "$CLONE_DIR/ansible/generate_inventory.sh" /usr/local/bin/
 
 
 # ── Disable host-key prompt for all Ansible runs ────────────────
