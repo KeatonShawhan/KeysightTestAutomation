@@ -289,6 +289,9 @@ function start_runners() {
       exit 1
     }
 
+    echo "[INFO] Installing package (debug)"
+    ./tap package install Runner --version "1.15.0"
+
     echo "[INFO] Starting the Runner on port $current_port..."
     nohup env OPENTAP_RUNNER_SERVER_PORT="$current_port" ./tap runner start > runner.log 2>&1 &
 
