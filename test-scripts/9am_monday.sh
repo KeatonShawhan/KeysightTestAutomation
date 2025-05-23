@@ -153,6 +153,7 @@ fi
 
 # Create session folder
 RUN_TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+export RUN_TIMESTAMP              # <-- this line should fix metric title mismatches
 SESSION_FOLDER="${METRICS_DIR}/9amMonday_${RUN_TIMESTAMP}"
 mkdir -p "$SESSION_FOLDER"
 
