@@ -1,10 +1,29 @@
----
+##############################################################################
+# PLAY 0 ─ Controller prep: choose ONE dump folder for the whole run
+##############################################################################
+- name: Initialise controller dump folder
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Create shared dump directory and expose its path
+      set_fact:
+        ctl_metrics_dir: "/tmp/metrics_dump/{{ lookup('pipe','date +%Y%m%d_%H%M%S') }}"
+
+    - name: Ensure the directory exists
+      file:
+        path: "{{ ctl_metrics_dir }}"
+        state: directory
+        mode: "0755"
+
+##############################################################################
+# PLAY 1 ─ Run “Active Lab” scenario on every Pi and fetch resource logs
+##############################################################################
 - name: Run “Active Lab” scenario on all farmslug Pis
   hosts: all
   gather_facts: no
   vars:
-    runners:            3                # how many OpenTAP runners to spin up
-    simulation_time:    300              # seconds the lab stays active
+    runners:            3
+    simulation_time:    300
     test_plan:          /home/pi/Baseline.TapPlan
     reg_token:          CHANGE_ME
     repo_dir:           ~/KeysightTestAutomation
@@ -14,17 +33,14 @@
   - name: Stash local changes (static label)
     ansible.builtin.shell: |
       cd {{ repo_dir }}
-
       # If the working tree and index are already clean, signal “no stash”.
       if git diff --quiet && git diff --cached --quiet ; then
           echo "NO_STASH"
       else
           prev_ref=$(git stash list | awk -F: '$2 ~ /ansible-run/ {print $1; exit}')
           [ -n "$prev_ref" ] && git stash drop --quiet "$prev_ref"
-
           # Push current changes with the fixed label.
           git stash push -m "ansible-run" --quiet
-
           # Grab the ref of the stash we just created (top of the list).
           git stash list | head -n 1 | cut -d: -f1
       fi
@@ -42,8 +58,8 @@
     ansible.builtin.shell: |
       cd {{ repo_dir }}
       ./{{ script }} {{ runners }} {{ simulation_time }} {{ test_plan }} {{ reg_token }}
-    async:  10800        # allow up to 3 h
-    poll:   0
+    async: 10800        # allow up to 3 h
+    poll: 0
     register: job
 
   - name: Wait for script to finish
@@ -52,7 +68,7 @@
     register: job_status
     until: job_status.finished
     retries: 1080        # check every 10 s → 3 h max
-    delay:   10
+    delay: 10
 
   # ------------------------------------------------------------------
   # 3. pull a per-host summary from the newest Active Lab metrics folder
@@ -61,12 +77,10 @@
     ansible.builtin.shell: |
       metrics_root="$HOME/KeysightTestAutomation/metrics"
       latest="$(ls -1td "$metrics_root"/activeLab_* 2>/dev/null | head -1)"
-
       # if nothing found, return zeros
       if [ -z "$latest" ]; then
         printf "0,0,0" && exit 0
       fi
-
       awk -F',' '
         /avg_runtime=/ {
           for (i = 1; i <= NF; i++)
@@ -94,6 +108,26 @@
     debug:
       var: active_lab_runtimes
 
+  # ------------------------------------------------------------------
+  # 5. fetch resource_usage.log to the controller (metric addition)
+  # ------------------------------------------------------------------
+  - name: Find newest activeLab metrics folder
+    ansible.builtin.shell: ls -1td "$HOME/KeysightTestAutomation/metrics"/activeLab_* 2>/dev/null | head -1
+    register: latest_run_dir
+    changed_when: false
+
+  - name: Stat resource_usage.log
+    ansible.builtin.stat:
+      path: "{{ latest_run_dir.stdout }}/resource_usage.log"
+    register: res_log
+
+  - name: Fetch resource_usage.log to controller (if present)
+    ansible.builtin.fetch:
+      src:  "{{ latest_run_dir.stdout }}/resource_usage.log"
+      dest: "{{ hostvars['localhost'].ctl_metrics_dir }}/{{ inventory_hostname }}_resource_usage.log"
+      flat: true
+    when: res_log.stat.exists
+
   - name: Pop the stash we created earlier (if any)
     ansible.builtin.shell: |
       cd {{ repo_dir }}
@@ -101,3 +135,39 @@
       [ "$ref" != "NO_STASH" ] && git stash pop --quiet "$ref"
     changed_when: false
     when: stash_status.stdout is defined and stash_status.stdout | trim != "NO_STASH"
+
+##############################################################################
+# PLAY 2 ─ Controller: merge fetched logs into one Influx line-protocol file
+##############################################################################
+- name: Build InfluxDB dump from fetched resource logs
+  hosts: localhost
+  gather_facts: no
+  vars:
+    dump_file: "{{ ctl_metrics_dir }}/influxdump_{{ lookup('pipe','date +%Y%m%d_%H%M%S') }}.lp"
+  tasks:
+    - name: Convert logs ➜ Influx line protocol
+      ansible.builtin.shell: |
+        outfile="{{ dump_file }}"
+        : > "$outfile"
+        shopt -s nullglob
+        for f in "{{ ctl_metrics_dir }}"/*_resource_usage.log; do
+          [ -e "$f" ] || continue
+          host="$(basename "$f" | cut -d'_' -f1)"
+          awk -F',' -v host="$host" 'NR>1{
+              ts_ns = $1 "000000000";
+              cpu=$2; mem=$3;
+              rd=($4==""?0:$4); wr=($5==""?0:$5);
+              rx=($6==""?0:$6); tx=($7==""?0:$7);
+              load=$8;
+              printf "pi_resources,host=%s,cpu_percent=%s,memory_kb=%s,disk_io_read_kb=%s,"\
+              "disk_io_write_kb=%s,network_rx_bytes=%s,network_tx_bytes=%s,load_avg=%s,timestamp=%s\n",\
+              host,cpu,mem,rd,wr,rx,tx,load,ts_ns;
+          }' "$f" >> "$outfile"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - debug:
+        msg: "Combined InfluxDB dump written to {{ dump_file }}"
+
