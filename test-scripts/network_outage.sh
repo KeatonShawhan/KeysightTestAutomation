@@ -64,7 +64,7 @@ run_test_plan() {
   local rid=$1 plan=$2 session=$3
   local folder="$HOME/runner_$rid"
   local out="$session/runner_${rid}_out.log"
-  local met="$session/runner_${rid}_met.log"
+  local met="$session/runner_${rid}_metrics.log"
   mkdir -p "${session}"
   cd "$folder" || return 1
   local start=$(date +%s.%N)
