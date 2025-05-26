@@ -160,6 +160,9 @@ TEMPLATE_READY_FLAG="$TEMPLATE_DIR/.ready"
 
 ### 1. Helper: build template exactly once
 build_template_if_needed() {
+    # force rebuilding
+    rm -f "$TEMPLATE_READY_FLAG"
+
     if [[ -f "$TEMPLATE_READY_FLAG" ]]; then
         echo "[INFO] Using cached runner template at $TEMPLATE_DIR"
         return
@@ -282,8 +285,10 @@ function start_runners() {
       exit 1
     }
 
-    echo "[INFO] Installing package (debug)"
-    ./tap package install Runner --version "1.15.0"
+    # temp test
+    # echo "[INFO] Installing package (debug)"
+    # ./tap package install Runner --version "1.15.0"
+    
 
     echo "[INFO] Starting the Runner on port $current_port..."
     nohup env OPENTAP_RUNNER_SERVER_PORT="$current_port" ./tap runner start > runner.log 2>&1 &
