@@ -33,12 +33,15 @@ function verify_test_plan() {
   local test_plan="$1"
   local test_plan_path=""
 
-  if [[ -f "${SCRIPT_DIR}/${test_plan}" ]]; then
+  if [[ -f "${test_plan}" ]]; then                           # absolute path
+    test_plan_path="${test_plan}"
+  elif [[ -f "${SCRIPT_DIR}/${test_plan}" ]]; then           # alongside script
     test_plan_path="${SCRIPT_DIR}/${test_plan}"
-  elif [[ -f "${SCRIPT_DIR}/../../taprunner/${test_plan}" ]]; then
+  elif [[ -f "${SCRIPT_DIR}/../../taprunner/${test_plan}" ]]; then  # taprunner/
     test_plan_path="$(cd "${SCRIPT_DIR}/../../taprunner" && pwd)/$(basename "$test_plan")"
   else
     echo "[ERROR] Test plan not found:"
+    echo " - ${test_plan}"
     echo " - ${SCRIPT_DIR}/${test_plan}"
     echo " - ${SCRIPT_DIR}/../../taprunner/${test_plan}"
     exit 1
@@ -58,12 +61,15 @@ function run_test_plan() {
   
   # Resolve test plan path with fallback to taprunner directory
   local test_plan_path=""
-  if [[ -f "${SCRIPT_DIR}/${test_plan}" ]]; then
+  if [[ -f "${test_plan}" ]]; then
+    test_plan_path="${test_plan}"
+  elif [[ -f "${SCRIPT_DIR}/${test_plan}" ]]; then
     test_plan_path="${SCRIPT_DIR}/${test_plan}"
   elif [[ -f "${SCRIPT_DIR}/../../taprunner/${test_plan}" ]]; then
     test_plan_path="$(cd "${SCRIPT_DIR}/../../taprunner" && pwd)/$(basename "$test_plan")"
   else
     echo "[ERROR] Test plan not found:"
+    echo " - ${test_plan}"
     echo " - ${SCRIPT_DIR}/${test_plan}"
     echo " - ${SCRIPT_DIR}/../../taprunner/${test_plan}"
     return 1
